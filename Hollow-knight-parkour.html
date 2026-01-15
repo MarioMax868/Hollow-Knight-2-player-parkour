@@ -138,7 +138,8 @@
                 doubleJump: { row: 9,  startCol: 4,  frames: 4 },   // Double jump (second half of jump row)
                 fall:       { row: 9,  startCol: 4,  frames: 4 },   // Falling (using later jump frames)
                 dash:       { row: 4,  startCol: 1,  frames: 5 },   // Dashing (row 5, columns 2-6 counting from 1)
-                wallSlide:  { row: 3,  startCol: 8,  frames: 4 }    // Wall sliding (row 4, cols 9-12 counting from 1)
+                wallSlide:  { row: 3,  startCol: 8,  frames: 4 },   // Wall sliding (row 4, cols 9-12 counting from 1)
+                death:      { row: 10, startCol: 0,  frames: 12 }   // Death animation (row 11, entire row)
             },
             getFrame: function(animName, frameIndex) {
                 const anim = this.animations[animName] || this.animations.idle;
@@ -194,9 +195,28 @@
                 console.log('Attack sprite sheet not found');
             };
             attackSpriteSheet.image.src = 'knight_attack.png';
+
+            // Load bench sprite for checkpoints
+            benchSprite.image.onload = () => {
+                benchSprite.loaded = true;
+                console.log('Bench sprite loaded! Size: ' + benchSprite.image.width + 'x' + benchSprite.image.height);
+            };
+            benchSprite.image.onerror = () => {
+                console.log('Bench sprite not found - using drawn fallback');
+            };
+            benchSprite.image.src = 'Bench.png';
         }
 
+        // Bench sprite for checkpoints
+        const benchSprite = {
+            image: new Image(),
+            loaded: false
+        };
+
         loadSpriteSheet();
+
+        // Death animations array - stores active death animations at death locations
+        const deathAnimations = [];
 
         // Cameras - one for each player (split screen)
         let camera1 = {
@@ -1317,7 +1337,7 @@
                     this.checkpointX = checkpoint.x;
                     this.checkpointY = checkpoint.y - this.height - 5;
                     checkpoint.activated = true;
-                    checkpoint.particleTimer = 120; // Show particles for ~2 seconds
+                    checkpoint.particleTimer = 25; // Short burst of particles
                 }
             }
 
@@ -1337,6 +1357,17 @@
             die() {
                 const deathX = this.x + this.width / 2;
                 const deathY = this.y + this.height / 2;
+
+                // Add death animation at death location
+                deathAnimations.push({
+                    x: deathX,
+                    y: deathY,
+                    frame: 0,
+                    frameTimer: 0,
+                    facing: this.facing,
+                    alpha: 1,
+                    fading: false
+                });
 
                 this.x = this.checkpointX;
                 this.y = this.checkpointY;
@@ -1598,19 +1629,22 @@
                 const baseX = this.x - camera.x;
                 const baseY = this.y - camera.y;
 
-                // Update particle timer
+                // Update particle timer - burst effect
                 if (this.particleTimer > 0) {
                     this.particleTimer--;
-                    // Spawn particles while timer is active
-                    if (Math.random() < 0.2) {
-                        this.particles.push({
-                            x: this.x + this.width / 2 + (Math.random() - 0.5) * 30,
-                            y: this.y + 10,
-                            vx: (Math.random() - 0.5) * 0.5,
-                            vy: -Math.random() * 1.5 - 0.5,
-                            life: 60 + Math.random() * 40,
-                            size: 2 + Math.random() * 2
-                        });
+                    // Spawn multiple particles for burst effect
+                    const spawnCount = this.particleTimer > 20 ? 5 : 1; // More at start
+                    for (let i = 0; i < spawnCount; i++) {
+                        if (Math.random() < 0.5) {
+                            this.particles.push({
+                                x: this.x + this.width / 2 + (Math.random() - 0.5) * 30,
+                                y: this.y + 15,
+                                vx: (Math.random() - 0.5) * 1.5,
+                                vy: -Math.random() * 1.0 - 0.4,
+                                life: 20 + Math.random() * 15,
+                                size: 4 + Math.random() * 3
+                            });
+                        }
                     }
                 }
 
@@ -1634,71 +1668,86 @@
                     ctx.fill();
                 }
 
-                const mainColor = '#5a5a6a';
-                const darkColor = '#3a3a4a';
-                const highlightColor = '#7a7a8a';
+                // Draw bench using sprite if loaded, otherwise fall back to drawn version
+                if (benchSprite.loaded) {
+                    // Draw the bench image
+                    const imgWidth = this.width + 5;
+                    const imgHeight = (benchSprite.image.height / benchSprite.image.width) * imgWidth;
+                    ctx.drawImage(
+                        benchSprite.image,
+                        baseX - 2,
+                        baseY + this.height - imgHeight,
+                        imgWidth,
+                        imgHeight
+                    );
+                } else {
+                    // Fallback: drawn bench
+                    const mainColor = '#5a5a6a';
+                    const darkColor = '#3a3a4a';
+                    const highlightColor = '#7a7a8a';
 
-                // Bench legs (curved)
-                ctx.fillStyle = darkColor;
-                // Left leg
-                ctx.beginPath();
-                ctx.moveTo(baseX + 8, baseY + this.height);
-                ctx.quadraticCurveTo(baseX + 5, baseY + this.height - 15, baseX + 10, baseY + this.height - 20);
-                ctx.lineTo(baseX + 14, baseY + this.height - 20);
-                ctx.quadraticCurveTo(baseX + 12, baseY + this.height - 10, baseX + 14, baseY + this.height);
-                ctx.closePath();
-                ctx.fill();
-                // Right leg
-                ctx.beginPath();
-                ctx.moveTo(baseX + this.width - 8, baseY + this.height);
-                ctx.quadraticCurveTo(baseX + this.width - 5, baseY + this.height - 15, baseX + this.width - 10, baseY + this.height - 20);
-                ctx.lineTo(baseX + this.width - 14, baseY + this.height - 20);
-                ctx.quadraticCurveTo(baseX + this.width - 12, baseY + this.height - 10, baseX + this.width - 14, baseY + this.height);
-                ctx.closePath();
-                ctx.fill();
+                    // Bench legs (curved)
+                    ctx.fillStyle = darkColor;
+                    // Left leg
+                    ctx.beginPath();
+                    ctx.moveTo(baseX + 8, baseY + this.height);
+                    ctx.quadraticCurveTo(baseX + 5, baseY + this.height - 15, baseX + 10, baseY + this.height - 20);
+                    ctx.lineTo(baseX + 14, baseY + this.height - 20);
+                    ctx.quadraticCurveTo(baseX + 12, baseY + this.height - 10, baseX + 14, baseY + this.height);
+                    ctx.closePath();
+                    ctx.fill();
+                    // Right leg
+                    ctx.beginPath();
+                    ctx.moveTo(baseX + this.width - 8, baseY + this.height);
+                    ctx.quadraticCurveTo(baseX + this.width - 5, baseY + this.height - 15, baseX + this.width - 10, baseY + this.height - 20);
+                    ctx.lineTo(baseX + this.width - 14, baseY + this.height - 20);
+                    ctx.quadraticCurveTo(baseX + this.width - 12, baseY + this.height - 10, baseX + this.width - 14, baseY + this.height);
+                    ctx.closePath();
+                    ctx.fill();
 
-                // Bench seat
-                ctx.fillStyle = mainColor;
-                ctx.beginPath();
-                ctx.roundRect(baseX + 5, baseY + this.height - 25, this.width - 10, 8, 2);
-                ctx.fill();
-                ctx.strokeStyle = darkColor;
-                ctx.lineWidth = 1;
-                ctx.stroke();
+                    // Bench seat
+                    ctx.fillStyle = mainColor;
+                    ctx.beginPath();
+                    ctx.roundRect(baseX + 5, baseY + this.height - 25, this.width - 10, 8, 2);
+                    ctx.fill();
+                    ctx.strokeStyle = darkColor;
+                    ctx.lineWidth = 1;
+                    ctx.stroke();
 
-                // Seat highlight
-                ctx.strokeStyle = highlightColor;
-                ctx.beginPath();
-                ctx.moveTo(baseX + 7, baseY + this.height - 24);
-                ctx.lineTo(baseX + this.width - 7, baseY + this.height - 24);
-                ctx.stroke();
+                    // Seat highlight
+                    ctx.strokeStyle = highlightColor;
+                    ctx.beginPath();
+                    ctx.moveTo(baseX + 7, baseY + this.height - 24);
+                    ctx.lineTo(baseX + this.width - 7, baseY + this.height - 24);
+                    ctx.stroke();
 
-                // Backrest
-                ctx.fillStyle = mainColor;
-                ctx.beginPath();
-                ctx.moveTo(baseX + 10, baseY + this.height - 23);
-                ctx.lineTo(baseX + 12, baseY + 8);
-                ctx.quadraticCurveTo(baseX + this.width / 2, baseY, baseX + this.width - 12, baseY + 8);
-                ctx.lineTo(baseX + this.width - 10, baseY + this.height - 23);
-                ctx.closePath();
-                ctx.fill();
-                ctx.strokeStyle = darkColor;
-                ctx.lineWidth = 1;
-                ctx.stroke();
+                    // Backrest
+                    ctx.fillStyle = mainColor;
+                    ctx.beginPath();
+                    ctx.moveTo(baseX + 10, baseY + this.height - 23);
+                    ctx.lineTo(baseX + 12, baseY + 8);
+                    ctx.quadraticCurveTo(baseX + this.width / 2, baseY, baseX + this.width - 12, baseY + 8);
+                    ctx.lineTo(baseX + this.width - 10, baseY + this.height - 23);
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.strokeStyle = darkColor;
+                    ctx.lineWidth = 1;
+                    ctx.stroke();
 
-                // Backrest decorative curves
-                ctx.strokeStyle = highlightColor;
-                ctx.lineWidth = 1;
-                ctx.beginPath();
-                ctx.moveTo(baseX + 15, baseY + this.height - 25);
-                ctx.quadraticCurveTo(baseX + this.width / 2, baseY + 5, baseX + this.width - 15, baseY + this.height - 25);
-                ctx.stroke();
+                    // Backrest decorative curves
+                    ctx.strokeStyle = highlightColor;
+                    ctx.lineWidth = 1;
+                    ctx.beginPath();
+                    ctx.moveTo(baseX + 15, baseY + this.height - 25);
+                    ctx.quadraticCurveTo(baseX + this.width / 2, baseY + 5, baseX + this.width - 15, baseY + this.height - 25);
+                    ctx.stroke();
 
-                // Center ornament on backrest
-                ctx.fillStyle = this.activated ? '#ffffd0' : highlightColor;
-                ctx.beginPath();
-                ctx.arc(baseX + this.width / 2, baseY + 15, 4, 0, Math.PI * 2);
-                ctx.fill();
+                    // Center ornament on backrest
+                    ctx.fillStyle = this.activated ? '#ffffd0' : highlightColor;
+                    ctx.beginPath();
+                    ctx.arc(baseX + this.width / 2, baseY + 15, 4, 0, Math.PI * 2);
+                    ctx.fill();
+                }
             }
         }
 
@@ -1856,9 +1905,9 @@
                 }
             }
 
-            // Final platform and goal
-            platforms.push(new Platform(x, 300, 100, 30));
-            goal = new Goal(x + 30, 220);
+            // Final platform and goal (same y as last platform) - large arena for fighting
+            platforms.push(new Platform(x, y, 250, 30));
+            goal = new Goal(x + 105, y - 80);
 
             // Death pit along entire level - void zone (cannot be pogoed)
             // Extended to cover far beyond level bounds to catch all falls
@@ -2340,6 +2389,53 @@
             player1.draw(cam);
             player2.draw(cam);
 
+            // Draw and update death animations
+            for (let i = deathAnimations.length - 1; i >= 0; i--) {
+                const anim = deathAnimations[i];
+
+                // Draw death animation if sprite sheet is loaded
+                if (spriteSheet.loaded) {
+                    const deathAnim = spriteSheet.animations.death;
+                    const frame = spriteSheet.getFrame('death', anim.frame);
+
+                    ctx.save();
+                    ctx.globalAlpha = anim.alpha;
+                    ctx.translate(anim.x - cam.x, anim.y - cam.y);
+                    ctx.scale(anim.facing, 1);
+                    ctx.drawImage(
+                        spriteSheet.image,
+                        frame.x, frame.y, frame.width, frame.height,
+                        -frame.width / 4, -frame.height / 4,
+                        frame.width / 2, frame.height / 2
+                    );
+                    ctx.restore();
+
+                    // Handle fading on last frame
+                    if (anim.fading) {
+                        anim.alpha -= 0.03;
+                        if (anim.alpha <= 0) {
+                            deathAnimations.splice(i, 1);
+                        }
+                    } else {
+                        // Update animation frame
+                        anim.frameTimer++;
+                        if (anim.frameTimer >= 12) { // Change frame every 12 game frames
+                            anim.frameTimer = 0;
+                            anim.frame++;
+
+                            // Start fading on last frame
+                            if (anim.frame >= deathAnim.frames - 1) {
+                                anim.frame = deathAnim.frames - 1;
+                                anim.fading = true;
+                            }
+                        }
+                    }
+                } else {
+                    // No sprite sheet - just remove
+                    deathAnimations.splice(i, 1);
+                }
+            }
+
             // Restore global camera
             camera = oldCamera;
         }
@@ -2377,6 +2473,35 @@
             // Combat collision
             const p1Hit = player1.handleAttackCollision(player2);
             const p2Hit = player2.handleAttackCollision(player1);
+
+            // Shade pogo collision - check if players can pogo off death animations
+            deathAnimations.forEach(shade => {
+                [player1, player2].forEach(player => {
+                    if (player.attackTimer > 0 && player.attackDirection === 1) {
+                        // Down attack - check for pogo collision with shade
+                        const shadeSize = 40;
+                        const shadeX = shade.x - shadeSize / 2;
+                        const shadeY = shade.y - shadeSize / 2;
+
+                        // Player's down attack hitbox (below player)
+                        const hitboxWidth = 50;
+                        const hitboxHeight = 35;
+                        const hitboxX = player.x + player.width / 2 - hitboxWidth / 2;
+                        const hitboxY = player.y + player.height;
+
+                        // Check collision
+                        if (hitboxX < shadeX + shadeSize &&
+                            hitboxX + hitboxWidth > shadeX &&
+                            hitboxY < shadeY + shadeSize &&
+                            hitboxY + hitboxHeight > shadeY) {
+                            // Pogo bounce!
+                            player.vy = -POGO_BOUNCE;
+                            player.jumpsLeft = 2;
+                            player.dashAvailable = true;
+                        }
+                    }
+                });
+            });
 
             // Handle clash - both players attacking at same time
             if (p1Hit === 'clash' || p2Hit === 'clash') {
