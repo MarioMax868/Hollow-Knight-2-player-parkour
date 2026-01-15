@@ -604,8 +604,8 @@
 
                     if (this.attackDirection === 1) {
                         // Down attack (pogo) - hitbox below player
-                        hitboxWidth = 50; // Match visual slash width
-                        hitboxHeight = 35;
+                        hitboxWidth = 90;
+                        hitboxHeight = 50;
                         hitboxX = this.x + this.width / 2 - hitboxWidth / 2;
                         hitboxY = this.y + this.height;
                     } else if (this.attackDirection === -1) {
@@ -764,17 +764,17 @@
                     let baseStartAngle, baseEndAngle;
 
                     if (this.attackDirection === 1) {
-                        // Pogo/down attack - narrower horizontal width
-                        outerRadiusX = 25 * growFactor;
-                        outerRadiusY = 16 * growFactor;
-                        innerRadiusX = 16 * growFactor;
-                        innerRadiusY = 6 * growFactor;
-                        innerOffsetY = -5 * growFactor;
+                        // Pogo/down attack - 2/3 of oval showing
+                        outerRadiusX = 18 * growFactor;
+                        outerRadiusY = 30 * growFactor;
+                        innerRadiusX = 6 * growFactor;
+                        innerRadiusY = 16 * growFactor;
+                        innerOffsetY = 0;
                         slashX = 0;
-                        slashY = 30;
+                        slashY = 35;
                         rotation = 0;
-                        baseStartAngle = -Math.PI * 0.1;
-                        baseEndAngle = Math.PI * 1.1;
+                        baseStartAngle = -Math.PI * 0.33;
+                        baseEndAngle = Math.PI * 1.33;
                     } else if (this.attackDirection === -1) {
                         // Up attack
                         outerRadiusX = 40 * growFactor;
@@ -810,6 +810,13 @@
                     const totalArc = baseEndAngle - baseStartAngle;
                     const segmentArc = totalArc / numSegments;
 
+                    // Taper settings for down attack
+                    const isTaperedSlash = (this.attackDirection === 1);
+                    const minInnerX = innerRadiusX * 0.3;
+                    const maxInnerX = innerRadiusX * 1.2;
+                    const minInnerY = innerRadiusY * 0.3;
+                    const maxInnerY = innerRadiusY * 1.2;
+
                     for (let i = 0; i < numSegments; i++) {
                         // Segment timing - top segments (low i) lead, bottom segments (high i) trail
                         const segmentDelay = i * 0.03; // Each segment delayed slightly
@@ -825,10 +832,22 @@
                         const segStart = baseStartAngle + i * segmentArc;
                         const segEnd = baseStartAngle + (i + 1) * segmentArc;
 
+                        // Calculate tapered inner radius based on segment position and facing
+                        let segInnerX = innerRadiusX;
+                        let segInnerY = innerRadiusY;
+                        if (isTaperedSlash) {
+                            const taperT = i / (numSegments - 1);
+                            // Facing right: thin on left (low i), thick on right (high i)
+                            // Facing left: thick on left (low i), thin on right (high i)
+                            const taperFactor = this.facing > 0 ? taperT : (1 - taperT);
+                            segInnerX = minInnerX + (maxInnerX - minInnerX) * taperFactor;
+                            segInnerY = minInnerY + (maxInnerY - minInnerY) * taperFactor;
+                        }
+
                         ctx.fillStyle = `rgba(255, 255, 255, ${segmentAlpha})`;
                         ctx.beginPath();
                         ctx.ellipse(0, 0, outerRadiusX, outerRadiusY, 0, segStart, segEnd);
-                        ctx.ellipse(0, innerOffsetY, innerRadiusX, innerRadiusY, 0, segEnd, segStart, true);
+                        ctx.ellipse(0, innerOffsetY, segInnerX, segInnerY, 0, segEnd, segStart, true);
                         ctx.closePath();
                         ctx.fill();
                     }
@@ -1071,16 +1090,16 @@
                     ctx.save();
 
                     if (this.attackDirection === 1) {
-                        // Pogo/down attack - narrower
-                        outerRadiusX = 25 * growFactor;
-                        outerRadiusY = 16 * growFactor;
-                        innerRadiusX = 16 * growFactor;
-                        innerRadiusY = 6 * growFactor;
-                        innerOffsetY = -5 * growFactor;
-                        ctx.translate(baseX, baseY + 26);
+                        // Pogo/down attack - 2/3 of oval showing
+                        outerRadiusX = 18 * growFactor;
+                        outerRadiusY = 30 * growFactor;
+                        innerRadiusX = 6 * growFactor;
+                        innerRadiusY = 16 * growFactor;
+                        innerOffsetY = 0;
+                        ctx.translate(baseX, baseY + 31);
                         this.drawNail(baseX, baseY, Math.PI / 2, isFlashing);
-                        baseStartAngle = -Math.PI * 0.1;
-                        baseEndAngle = Math.PI * 1.1;
+                        baseStartAngle = -Math.PI * 0.33;
+                        baseEndAngle = Math.PI * 1.33;
                     } else if (this.attackDirection === -1) {
                         outerRadiusX = 40 * growFactor;
                         outerRadiusY = 16 * growFactor;
@@ -1111,6 +1130,13 @@
                     const totalArc = baseEndAngle - baseStartAngle;
                     const segmentArc = totalArc / numSegments;
 
+                    // Taper settings for down attack
+                    const isTaperedSlash = (this.attackDirection === 1);
+                    const minInnerX = innerRadiusX * 0.3;
+                    const maxInnerX = innerRadiusX * 1.2;
+                    const minInnerY = innerRadiusY * 0.3;
+                    const maxInnerY = innerRadiusY * 1.2;
+
                     for (let i = 0; i < numSegments; i++) {
                         const segmentDelay = i * 0.03;
                         const segmentProgress = Math.max(0, Math.min(1, (slashProgress - segmentDelay) * 1.8));
@@ -1123,10 +1149,20 @@
                         const segStart = baseStartAngle + i * segmentArc;
                         const segEnd = baseStartAngle + (i + 1) * segmentArc;
 
+                        // Calculate tapered inner radius based on segment position and facing
+                        let segInnerX = innerRadiusX;
+                        let segInnerY = innerRadiusY;
+                        if (isTaperedSlash) {
+                            const taperT = i / (numSegments - 1);
+                            const taperFactor = this.facing > 0 ? taperT : (1 - taperT);
+                            segInnerX = minInnerX + (maxInnerX - minInnerX) * taperFactor;
+                            segInnerY = minInnerY + (maxInnerY - minInnerY) * taperFactor;
+                        }
+
                         ctx.fillStyle = `rgba(255, 255, 255, ${segmentAlpha})`;
                         ctx.beginPath();
                         ctx.ellipse(0, 0, outerRadiusX, outerRadiusY, 0, segStart, segEnd);
-                        ctx.ellipse(0, innerOffsetY, innerRadiusX, innerRadiusY, 0, segEnd, segStart, true);
+                        ctx.ellipse(0, innerOffsetY, segInnerX, segInnerY, 0, segEnd, segStart, true);
                         ctx.closePath();
                         ctx.fill();
                     }
@@ -1279,7 +1315,7 @@
 
             handleSpikeCollision(spike) {
                 // Extended pogo hitbox to match slash width (25 pixels to each side)
-                const pogoSlashWidth = 25;
+                const pogoSlashWidth = 45;
                 const playerCenterX = this.x + this.width / 2;
                 const slashHitsSpike = (playerCenterX + pogoSlashWidth > spike.x) &&
                                        (playerCenterX - pogoSlashWidth < spike.x + spike.width) &&
