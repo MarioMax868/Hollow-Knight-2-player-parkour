@@ -111,7 +111,7 @@
         const JUMP_POWER = 10;
         const WALL_JUMP_POWER_X = 7;
         const WALL_JUMP_POWER_Y = 11;
-        const WALL_SLIDE_SPEED = 2;
+        const WALL_SLIDE_SPEED = 4;
         const DASH_SPEED = 10;
         const DASH_DURATION = 10;
         const DASH_COOLDOWN = 60; // frames
@@ -249,7 +249,9 @@
                 this.label = label;
 
                 this.onGround = false;
+                this.wasOnGround = false; // Track previous frame's ground state
                 this.onWall = false;
+                this.wasOnWall = false;
                 this.wallDirection = 0; // -1 left, 1 right
                 this.jumpsLeft = 2;
                 this.attackDirection = 0; // 0 = horizontal, 1 = down, -1 = up
@@ -502,6 +504,10 @@
                     this.eyeBlink -= 0.15;
                 }
 
+                // Save previous ground state before resetting
+                this.wasOnGround = this.onGround;
+                this.wasOnWall = this.onWall;
+
                 // Reset ground/wall state
                 this.onGround = false;
                 this.onWall = false;
@@ -637,16 +643,29 @@
                         // Knockback in the direction attacker is facing
                         const knockbackDir = this.facing;
 
-                        // Apply horizontal knockback with knockback frames
-                        otherPlayer.vx = knockbackDir * 12;
-                        otherPlayer.vy = -2;
+                        // Apply knockback - less for up/down attacks
+                        if (this.attackDirection === 0) {
+                            // Horizontal attack - full knockback
+                            otherPlayer.vx = knockbackDir * 12;
+                            otherPlayer.vy = -2;
+                            otherPlayer.knockbackFrames = 10;
+                        } else if (this.attackDirection === -1) {
+                            // Up attack
+                            otherPlayer.vx = knockbackDir * 10;
+                            otherPlayer.vy = -1.5;
+                            otherPlayer.knockbackFrames = 9;
+                        } else {
+                            // Down attack - reduced knockback
+                            otherPlayer.vx = knockbackDir * 8;
+                            otherPlayer.vy = -1.5;
+                            otherPlayer.knockbackFrames = 8;
+                        }
                         otherPlayer.invincibilityFrames = 30;
-                        otherPlayer.knockbackFrames = 10;
 
                         // Pogo bounce if down attacking another player
                         if (this.attackDirection === 1) {
                             this.vy = -POGO_BOUNCE;
-                            this.jumpsLeft = 2;
+                            this.jumpsLeft = 1;
                             this.dashAvailable = true;
                         } else {
                             // Small recoil for attacker (non-pogo attacks)
@@ -1328,7 +1347,7 @@
                     // Pogo bounce off spikes with downward attack!
                     this.vy = -POGO_BOUNCE;
                     this.y = spike.y - this.height;
-                    this.jumpsLeft = 2;
+                    this.jumpsLeft = 1;
                     this.dashAvailable = true;
                     this.createJumpParticles();
 
@@ -2488,6 +2507,14 @@
                 player2.handlePlatformCollision(platform);
             });
 
+            // Check if players fell off a platform (were grounded, now airborne without jumping)
+            [player1, player2].forEach(player => {
+                if ((player.wasOnGround || player.wasOnWall) && !player.onGround && !player.onWall) {
+                    // Player fell off - only allow double jump, not first jump
+                    player.jumpsLeft = Math.min(player.jumpsLeft, 1);
+                }
+            });
+
             spikes.forEach(spike => {
                 player1.handleSpikeCollision(spike);
                 player2.handleSpikeCollision(spike);
@@ -2532,7 +2559,7 @@
                             hitboxY + hitboxHeight > shadeY) {
                             // Pogo bounce!
                             player.vy = -POGO_BOUNCE;
-                            player.jumpsLeft = 2;
+                            player.jumpsLeft = 1;
                             player.dashAvailable = true;
                         }
                     }
