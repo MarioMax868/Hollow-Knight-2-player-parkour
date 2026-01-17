@@ -111,7 +111,7 @@
         const JUMP_POWER = 10;
         const WALL_JUMP_POWER_X = 7;
         const WALL_JUMP_POWER_Y = 11;
-        const WALL_SLIDE_SPEED = 4;
+        const WALL_SLIDE_SPEED = 2.5;
         const DASH_SPEED = 10;
         const DASH_DURATION = 10;
         const DASH_COOLDOWN = 60; // frames
@@ -340,8 +340,10 @@
                         this.vx = moveX * PLAYER_SPEED;
                     }
 
-                    // Update facing direction
-                    if (moveX !== 0) {
+                    // Update facing direction (while wall sliding, always face toward the wall)
+                    if (this.onWall) {
+                        this.facing = -this.wallDirection;
+                    } else if (moveX !== 0) {
                         this.facing = moveX > 0 ? 1 : -1;
                     }
 
@@ -585,10 +587,11 @@
                             pvx = (Math.random() - 0.5) * 4;
                             pvy = -Math.random() * 5 - 3;
                         } else {
-                            // Horizontal attack
-                            px = this.x + this.width / 2 + (15 * this.facing);
+                            // Horizontal attack (flipped when wall sliding)
+                            const particleFacing = this.onWall ? -this.facing : this.facing;
+                            px = this.x + this.width / 2 + (15 * particleFacing);
                             py = this.y + this.height / 2 + (Math.random() - 0.5) * 20;
-                            pvx = (Math.random() * 4 + 2) * this.facing;
+                            pvx = (Math.random() * 4 + 2) * particleFacing;
                             pvy = (Math.random() - 0.5) * 3;
                         }
                         this.particles.push({
@@ -622,8 +625,10 @@
                         hitboxY = this.y - hitboxHeight;
                     } else {
                         // Horizontal attack - hitbox to the side
+                        // When wall sliding, attack goes away from wall
+                        const attackFacing = this.onWall ? -this.facing : this.facing;
                         const hitboxRange = 40;
-                        hitboxX = this.x + (this.facing > 0 ? this.width : -hitboxRange);
+                        hitboxX = this.x + (attackFacing > 0 ? this.width : -hitboxRange);
                         hitboxY = this.y;
                         hitboxWidth = hitboxRange;
                         hitboxHeight = this.height;
@@ -640,8 +645,8 @@
                             return 'clash';
                         }
 
-                        // Knockback in the direction attacker is facing
-                        const knockbackDir = this.facing;
+                        // Knockback in the direction attacker is facing (flipped when wall sliding)
+                        const knockbackDir = this.onWall ? -this.facing : this.facing;
 
                         // Apply knockback - less for up/down attacks
                         if (this.attackDirection === 0) {
@@ -715,10 +720,10 @@
                     } else {
                         animName = 'jump';
                     }
-                    frameIndex = Math.floor(this.animTime * 2);
+                    frameIndex = Math.floor(this.animTime * 1.0);
                 } else if (isFalling) {
                     animName = 'fall';
-                    frameIndex = Math.floor(this.animTime * 1.5);
+                    frameIndex = Math.floor(this.animTime * 1.0);
                 } else if (isRunning) {
                     animName = 'walk';
                     frameIndex = Math.floor(this.runCycle * 0.25);
@@ -770,7 +775,9 @@
                 if (isAttacking) {
                     ctx.save();
                     ctx.translate(centerX, bottomY - displayHeight / 2);
-                    ctx.scale(this.facing, 1);
+                    // When wall sliding, flip slash to face away from wall
+                    const slashFacing = this.onWall ? -this.facing : this.facing;
+                    ctx.scale(slashFacing, 1);
 
                     // Slash animation progress (0 to 1)
                     const slashProgress = (15 - this.attackTimer) / 15;
