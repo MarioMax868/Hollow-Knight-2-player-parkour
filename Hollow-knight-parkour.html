@@ -612,7 +612,11 @@
                     let hitboxX, hitboxY, hitboxWidth, hitboxHeight;
 
                     if (this.attackDirection === 1) {
-                        // Down attack (pogo) - hitbox below player
+                        // Down attack (pogo) - hitbox below player, only when moving down
+                        if (this.vy <= 0) {
+                            // Not moving down, no hitbox
+                            return false;
+                        }
                         hitboxWidth = 90;
                         hitboxHeight = 50;
                         hitboxX = this.x + this.width / 2 - hitboxWidth / 2;
@@ -1428,7 +1432,8 @@
                     frameTimer: 0,
                     facing: this.facing,
                     alpha: 1,
-                    fading: false
+                    fading: false,
+                    delayTimer: 90 // Wait 1.5 seconds (90 frames at 60fps) on first frame
                 });
 
                 this.x = this.checkpointX;
@@ -2478,10 +2483,20 @@
                         if (anim.alpha <= 0) {
                             deathAnimations.splice(i, 1);
                         }
+                    } else if (anim.delayTimer > 0) {
+                        // Loop through first 4 frames during delay
+                        anim.delayTimer--;
+                        anim.frameTimer++;
+                        if (anim.frameTimer >= 16) {
+                            anim.frameTimer = 0;
+                            anim.frame = (anim.frame + 1) % 4; // Cycle through frames 0-3
+                        }
                     } else {
+                        // Reset to frame 4 to continue animation after delay
+                        if (anim.frame < 4) anim.frame = 4;
                         // Update animation frame
                         anim.frameTimer++;
-                        if (anim.frameTimer >= 12) { // Change frame every 12 game frames
+                        if (anim.frameTimer >= 16) { // Change frame every 18 game frames
                             anim.frameTimer = 0;
                             anim.frame++;
 
