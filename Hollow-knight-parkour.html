@@ -279,6 +279,8 @@
                 this.cloakWave = 0;
                 this.eyeBlink = 0;
                 this.blinkTimer = 0;
+                this.wingTimer = 0; // Monarch Wings effect on double jump
+                this.wingFadeSpeed = 1; // Normal fade speed, increases for quick fade
                 this.wasOnGround = false;
                 this.knockbackFrames = 0; // Prevents movement during knockback
                 this.wallJumpFrames = 0; // Prevents movement override during wall jump
@@ -380,6 +382,8 @@
                             // Double jump
                             this.vy = -JUMP_POWER;
                             this.jumpsLeft--;
+                            this.wingTimer = 25; // Show Monarch Wings
+                            this.wingFadeSpeed = 1; // Reset to normal fade speed
                             this.createJumpParticles();
                         }
                     }
@@ -392,6 +396,7 @@
                     if (keys[this.controls.dash] && !this.dashPressed && this.dashAvailable) {
                         this.dashPressed = true;
                         this.dashTimer = DASH_DURATION;
+                        this.wingFadeSpeed = 5; // Quick fade wings when dashing
                         this.dashAvailable = false;
 
                         // Determine dash direction
@@ -456,6 +461,15 @@
                     // Invincibility frames
                     if (this.invincibilityFrames > 0) {
                         this.invincibilityFrames--;
+                    }
+
+                    // Wing timer for Monarch Wings effect
+                    if (this.wingTimer > 0) {
+                        this.wingTimer -= this.wingFadeSpeed;
+                        if (this.wingTimer <= 0) {
+                            this.wingTimer = 0;
+                            this.wingFadeSpeed = 1; // Reset fade speed
+                        }
                     }
                 }
 
@@ -570,6 +584,9 @@
                     this.attackTimer = 15;
                     this.attackCooldown = 25;
                     this.parryWindow = 25; // Extended parry window (longer than attack)
+                    if (this.attackDirection === 0) {
+                        this.wingFadeSpeed = 5; // Quick fade wings only for horizontal attacks
+                    }
 
                     // Create slash particles based on direction - Hollow Knight style
                     for (let i = 0; i < 8; i++) {
@@ -777,6 +794,93 @@
                 );
 
                 ctx.restore();
+
+                // Draw Monarch Wings on double jump
+                if (this.wingTimer > 0) {
+                    ctx.save();
+                    ctx.translate(centerX, bottomY - displayHeight * 2 / 5);
+
+                    // Wing animation - single flap motion (faster)
+                    const wingProgress = 1 - (this.wingTimer / 25);
+                    // Single flap: quick up, fast down, slow return
+                    const flapAngle = wingProgress < 0.05 ? 0.3 * (1 - wingProgress / 0.05) :
+                                      wingProgress < 0.25 ? -1.3 * ((wingProgress - 0.05) / 0.2) :
+                                      -1.3 * (1 - (wingProgress - 0.25) / 0.75);
+                    const wingAlpha = Math.max(0, 1 - wingProgress * 1.1); // Fade out
+                    const wingScale = 1.0 + (wingProgress < 0.3 ? wingProgress * 0.3 : 0.1 * (1 - wingProgress)); // Grow then shrink
+
+                    // Curve amount - wings start curved upward, straighten, then curve down towards ground (longer)
+                    const curveAmount = wingProgress < 0.15 ? 1.2 * (1 - wingProgress / 0.15) :
+                                        wingProgress < 0.35 ? 0 :
+                                        -1.0 * ((wingProgress - 0.35) / 0.65);
+
+                    ctx.globalAlpha = wingAlpha;
+
+                    // Draw both wings
+                    for (let side = -1; side <= 1; side += 2) {
+                        ctx.save();
+                        // Perspective: wing on facing side is slightly smaller (further away)
+                        const perspectiveScale = (side === this.facing) ? 0.9 : 1.0;
+                        // Offset wings to the sides - bigger wing closer to character
+                        const wingOffset = (side === this.facing) ? 12 : 8;
+                        ctx.translate(side * wingOffset, 0);
+                        ctx.scale(side * perspectiveScale, perspectiveScale);
+                        ctx.rotate(-flapAngle); // Flapping rotation
+
+                        // Wing dimensions
+                        const wingWidth = 60 * wingScale;
+
+                        // Draw feathers like spread fingers - arch shape
+                        const numFeathers = 5;
+                        const featherAngles = [-0.5, -0.8, -1.1, -0.8, -0.5]; // Middle highest, outer lower
+                        const featherLengths = [0.6, 0.85, 1.0, 0.85, 0.6]; // Arch: small-medium-big-medium-small
+                        const featherWidths = [16, 22, 30, 22, 16]; // Arch: thin-medium-thick-medium-thin
+
+                        // Simple white fill for performance - same opacity throughout
+                        ctx.fillStyle = 'rgba(255, 255, 255, ' + wingAlpha + ')';
+                        ctx.strokeStyle = 'rgba(255, 255, 255, ' + wingAlpha + ')';
+                        ctx.lineWidth = 1.5;
+
+                        for (let i = 0; i < numFeathers; i++) {
+                            const angle = featherAngles[i];
+                            const length = wingWidth * featherLengths[i];
+                            const featherWidth = featherWidths[i];
+
+                            ctx.save();
+                            ctx.rotate(angle);
+
+                            // Curve values
+                            const curvePeak = featherWidth * (0.7 + curveAmount * 0.4);
+                            const tipRise = -featherWidth * curveAmount * 0.3;
+                            const thickness = featherWidth * 0.6;
+
+                            // Draw feather shape
+                            ctx.beginPath();
+                            ctx.moveTo(0, 0);
+                            ctx.bezierCurveTo(length * 0.3, curvePeak, length * 0.7, curvePeak * 0.7, length, tipRise);
+                            ctx.bezierCurveTo(length * 0.7, tipRise - thickness, length * 0.3, -thickness, 0, 0);
+                            ctx.fill();
+
+                            // Center line
+                            ctx.beginPath();
+                            ctx.moveTo(3, 0);
+                            ctx.lineTo(length * 0.85, (curvePeak + tipRise) * 0.3);
+                            ctx.stroke();
+
+                            ctx.restore();
+                        }
+
+                        // Wing base/shoulder glow - simple circle
+                        ctx.fillStyle = 'rgba(255, 255, 255, ' + wingAlpha + ')';
+                        ctx.beginPath();
+                        ctx.arc(0, 0, 8, 0, Math.PI * 2);
+                        ctx.fill();
+
+                        ctx.restore();
+                    }
+
+                    ctx.restore();
+                }
 
                 // Draw slash effect when attacking - Hollow Knight style sweeping crescent
                 if (isAttacking) {
@@ -1331,6 +1435,7 @@
                             this.wallDirection = -1;
                             this.jumpsLeft = 2;
                             this.dashAvailable = true;
+                            this.wingFadeSpeed = 5; // Quick fade wings when wall sliding
                         }
                     } else if (minOverlap === overlapRight && this.vx < 0) {
                         // Hitting left wall
@@ -1341,6 +1446,7 @@
                             this.wallDirection = 1;
                             this.jumpsLeft = 2;
                             this.dashAvailable = true;
+                            this.wingFadeSpeed = 5; // Quick fade wings when wall sliding
                         }
                     }
                 }
@@ -1687,9 +1793,9 @@
         class Checkpoint {
             constructor(x, y) {
                 this.x = x;
-                this.y = y + 20; // Offset down to sit on platform
-                this.width = 50;
-                this.height = 40;
+                this.y = y + 12; // Offset down to sit on platform
+                this.width = 60;
+                this.height = 48;
                 this.activated = false;
                 this.particles = [];
                 this.particleTimer = 0; // Timer for temporary particle effect
@@ -2326,7 +2432,7 @@
             platforms.push(new Platform(x + arenaWidth - 110, y - 50, 50, 12));
 
             // Checkpoint in the center
-            const checkpoint = new Checkpoint(x + arenaWidth / 2 - 15, y - 60);
+            const checkpoint = new Checkpoint(x + arenaWidth / 2 - 30, y - 60);
             checkpoints.push(checkpoint);
 
             // Return position after the void gap (no platforms to save yourself)
