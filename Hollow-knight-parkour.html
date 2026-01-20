@@ -282,6 +282,7 @@
                 this.wingTimer = 0; // Monarch Wings effect on double jump
                 this.wingFadeSpeed = 1; // Normal fade speed, increases for quick fade
                 this.wasOnGround = false;
+                this.coyoteTime = 0; // Grace period for jumping after leaving platform
                 this.knockbackFrames = 0; // Prevents movement during knockback
                 this.wallJumpFrames = 0; // Prevents movement override during wall jump
                 this.parryWindow = 0; // Extended window for parrying attacks
@@ -364,7 +365,7 @@
                     if (keys[this.controls.jump] && !this.jumpPressed) {
                         this.jumpPressed = true;
 
-                        if (this.onGround || this.onWall) {
+                        if (this.onGround || this.onWall || this.coyoteTime > 0) {
                             if (this.onWall) {
                                 // Wall jump - always pushes away from wall
                                 this.vx = this.wallDirection * WALL_JUMP_POWER_X;
@@ -373,9 +374,10 @@
                                 this.wallJumpFrames = 12; // Prevent input override for a short time
                                 this.createJumpParticles();
                             } else {
-                                // Normal jump
+                                // Normal jump (or coyote time jump)
                                 this.vy = -JUMP_POWER;
                                 this.jumpsLeft = 1;
+                                this.coyoteTime = 0; // Use up coyote time
                                 this.createJumpParticles();
                             }
                         } else if (this.jumpsLeft > 0) {
@@ -524,14 +526,31 @@
                 this.wasOnGround = this.onGround;
                 this.wasOnWall = this.onWall;
 
+                // Coyote time - grace period for jumping after leaving platform
+                if (this.onGround) {
+                    this.coyoteTime = 4; // 4 frames of grace period
+                } else if (this.coyoteTime > 0) {
+                    this.coyoteTime--;
+                }
+
                 // Reset ground/wall state
                 this.onGround = false;
                 this.onWall = false;
 
                 // Update particles
                 this.particles = this.particles.filter(p => {
-                    p.x += p.vx;
-                    p.y += p.vy;
+                    if (p.type === 'shadeTrail') {
+                        // Shade trail particles move toward target
+                        if (p.delay > 0) {
+                            p.delay--;
+                        } else {
+                            p.x += (p.targetX - p.x) * 0.12;
+                            p.y += (p.targetY - p.y) * 0.12;
+                        }
+                    } else {
+                        p.x += p.vx;
+                        p.y += p.vy;
+                    }
                     p.life--;
                     return p.life > 0;
                 });
@@ -1533,6 +1552,36 @@
                 const deathX = this.x + this.width / 2;
                 const deathY = this.y + this.height / 2;
 
+                // Find and remove existing shade from this player, create trail particles
+                // Only remove if not already pogoed (playing full animation)
+                for (let i = deathAnimations.length - 1; i >= 0; i--) {
+                    const shade = deathAnimations[i];
+                    if (shade.owner === this.label && !shade.pogoed) {
+                        // Create trail particles from old shade to new shade
+                        const oldX = shade.x;
+                        const oldY = shade.y;
+                        const dx = deathX - oldX;
+                        const dy = deathY - oldY;
+                        const dist = Math.sqrt(dx * dx + dy * dy);
+                        const numParticles = Math.min(20, Math.max(4, Math.floor(dist / 40)));
+                        for (let j = 0; j < numParticles; j++) {
+                            const delay = j * 3; // Stagger the particles
+                            this.particles.push({
+                                x: oldX + (Math.random() - 0.5) * 20,
+                                y: oldY + (Math.random() - 0.5) * 20,
+                                targetX: deathX,
+                                targetY: deathY,
+                                delay: delay,
+                                life: 35 + delay,
+                                color: '#1a1a2e',
+                                type: 'shadeTrail'
+                            });
+                        }
+                        // Remove old shade instantly
+                        deathAnimations.splice(i, 1);
+                    }
+                }
+
                 // Add death animation at death location
                 deathAnimations.push({
                     x: deathX,
@@ -1542,7 +1591,9 @@
                     facing: this.facing,
                     alpha: 1,
                     fading: false,
-                    delayTimer: 90 // Wait 1.5 seconds (90 frames at 60fps) on first frame
+                    delayTimer: 90, // Wait 1.5 seconds (90 frames at 60fps) on first frame
+                    pogoed: false, // Only continues animation after being pogoed
+                    owner: this.label // Track which player owns this shade
                 });
 
                 this.x = this.checkpointX;
@@ -2087,7 +2138,7 @@
 
             // Death pit along entire level - void zone (cannot be pogoed)
             // Extended to cover far beyond level bounds to catch all falls
-            voidZones.push(new VoidZone(-500, 600, levelLength + 2000, 300));
+            voidZones.push(new VoidZone(-500, 600, levelLength + 5000, 300));
         }
 
         function generateSpikeGaps(startX, baseY, difficulty) {
@@ -2544,13 +2595,16 @@
             // Draw subtle grid (Path of Pain style - light background)
             ctx.strokeStyle = '#d4d0c8';
             ctx.lineWidth = 1;
-            for (let x = 0; x < 3000; x += 50) {
+            const gridSize = 50;
+            const startX = Math.floor(cam.x / gridSize) * gridSize;
+            const startY = Math.floor(cam.y / gridSize) * gridSize;
+            for (let x = startX; x < startX + canvas.width + gridSize; x += gridSize) {
                 ctx.beginPath();
                 ctx.moveTo(x - cam.x, 0);
                 ctx.lineTo(x - cam.x, canvas.height);
                 ctx.stroke();
             }
-            for (let y = 0; y < 800; y += 50) {
+            for (let y = startY; y < startY + canvas.height + gridSize; y += gridSize) {
                 ctx.beginPath();
                 ctx.moveTo(0, y - cam.y);
                 ctx.lineTo(canvas.width, y - cam.y);
@@ -2592,20 +2646,20 @@
                         if (anim.alpha <= 0) {
                             deathAnimations.splice(i, 1);
                         }
-                    } else if (anim.delayTimer > 0) {
-                        // Loop through first 4 frames during delay
-                        anim.delayTimer--;
+                    } else if (!anim.pogoed) {
+                        // Loop through first 4 frames until pogoed
+                        if (anim.delayTimer > 0) anim.delayTimer--;
                         anim.frameTimer++;
                         if (anim.frameTimer >= 16) {
                             anim.frameTimer = 0;
                             anim.frame = (anim.frame + 1) % 4; // Cycle through frames 0-3
                         }
                     } else {
-                        // Reset to frame 4 to continue animation after delay
+                        // Pogoed - continue to full animation
                         if (anim.frame < 4) anim.frame = 4;
                         // Update animation frame
                         anim.frameTimer++;
-                        if (anim.frameTimer >= 16) { // Change frame every 18 game frames
+                        if (anim.frameTimer >= 16) {
                             anim.frameTimer = 0;
                             anim.frame++;
 
@@ -2692,6 +2746,7 @@
                             player.vy = -POGO_BOUNCE;
                             player.jumpsLeft = 1;
                             player.dashAvailable = true;
+                            shade.pogoed = true; // Trigger full death animation
                         }
                     }
                 });
