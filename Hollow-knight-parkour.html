@@ -23,6 +23,8 @@
 
         #gameContainer {
             position: relative;
+            display: flex;
+            flex-direction: column;
         }
 
         canvas {
@@ -30,6 +32,10 @@
             background: #e8e4dc;
             display: block;
             box-shadow: 0 0 30px rgba(0, 0, 0, 0.5);
+        }
+
+        #canvasWrapper {
+            position: relative;
         }
 
         #ui {
@@ -79,25 +85,28 @@
         #winMessage button:hover {
             background: #3a3a5f;
         }
+
     </style>
 </head>
 <body>
     <div id="gameContainer">
-        <canvas id="gameCanvas" width="1200" height="800"></canvas>
-        <div id="ui">
-            <div class="player-indicator" style="color: #e0e0e0;">
-                P1 (WASD/Shift/Q) - Dash: <span id="p1dash">Ready</span>
+        <div id="canvasWrapper">
+            <canvas id="gameCanvas" width="1200" height="800"></canvas>
+            <div id="ui">
+                <div class="player-indicator" style="color: #e0e0e0;">
+                    P1: <span id="p1controls">WASD/Shift/Q</span> - Dash: <span id="p1dash">Ready</span>
+                </div>
+                <div class="player-indicator" style="color: #88ccff;">
+                    P2: <span id="p2controls">IJKL/B/U</span> - Dash: <span id="p2dash">Ready</span>
+                </div>
+                <div style="margin-top: 10px; padding: 5px 10px; background: rgba(0, 0, 0, 0.5); border-radius: 3px;">
+                    Controls: Jump | Dash | Attack (Down/Up for directional)
+                </div>
             </div>
-            <div class="player-indicator" style="color: #88ccff;">
-                P2 (IJKL/U//) - Dash: <span id="p2dash">Ready</span>
+            <div id="winMessage">
+                <div id="winText"></div>
+                <button onclick="restartGame()">Race Again</button>
             </div>
-            <div style="margin-top: 10px; padding: 5px 10px; background: rgba(0, 0, 0, 0.5); border-radius: 3px;">
-                Controls: Jump | Dash | Attack (Down/Up for directional)
-            </div>
-        </div>
-        <div id="winMessage">
-            <div id="winText"></div>
-            <button onclick="restartGame()">Race Again</button>
         </div>
     </div>
 
@@ -271,6 +280,7 @@
                 this.attackCooldown = 0;
                 this.invincibilityFrames = 0;
                 this.attackPressed = false;
+                this.pogoBounced = false; // Track if pogo bounce already happened this attack
 
                 // Animation properties
                 this.animTime = Math.random() * Math.PI * 2; // Offset for breathing
@@ -427,8 +437,10 @@
                         this.dashPressed = false;
                     }
 
-                    // Attack
-                    if (keys[this.controls.attack] && !this.attackPressed) {
+                    // Attack (check main attack key and alternate if set)
+                    const attackKeyPressed = keys[this.controls.attack] ||
+                        (this.controls.attackAlt && keys[this.controls.attackAlt]);
+                    if (attackKeyPressed && !this.attackPressed) {
                         this.attackPressed = true;
                         // Determine attack direction
                         if (!this.onGround && keys[this.controls.down]) {
@@ -441,7 +453,7 @@
                         this.attack();
                     }
 
-                    if (!keys[this.controls.attack]) {
+                    if (!attackKeyPressed) {
                         this.attackPressed = false;
                     }
 
@@ -603,6 +615,7 @@
                     this.attackTimer = 15;
                     this.attackCooldown = 25;
                     this.parryWindow = 25; // Extended parry window (longer than attack)
+                    this.pogoBounced = false; // Reset pogo bounce for new attack
                     if (this.attackDirection === 0) {
                         this.wingFadeSpeed = 5; // Quick fade wings only for horizontal attacks
                     }
@@ -710,12 +723,13 @@
                         }
                         otherPlayer.invincibilityFrames = 30;
 
-                        // Pogo bounce if down attacking another player
-                        if (this.attackDirection === 1) {
+                        // Pogo bounce if down attacking another player (only once per attack)
+                        if (this.attackDirection === 1 && !this.pogoBounced) {
                             this.vy = -POGO_BOUNCE;
                             this.jumpsLeft = 1;
                             this.dashAvailable = true;
-                        } else {
+                            this.pogoBounced = true;
+                        } else if (this.attackDirection !== 1) {
                             // Small recoil for attacker (non-pogo attacks)
                             this.vx = -knockbackDir * 3;
                         }
@@ -1483,11 +1497,14 @@
                 // Check pogo first with extended slash hitbox
                 if (this.attackTimer > 0 && this.attackDirection === 1 && this.vy > 0 &&
                     this.y + this.height - this.vy <= spike.y + 10 && slashHitsSpike) {
-                    // Pogo bounce off spikes with downward attack!
-                    this.vy = -POGO_BOUNCE;
+                    // Pogo bounce off spikes with downward attack! (only bounce once per attack)
+                    if (!this.pogoBounced) {
+                        this.vy = -POGO_BOUNCE;
+                        this.jumpsLeft = 1;
+                        this.dashAvailable = true;
+                        this.pogoBounced = true;
+                    }
                     this.y = spike.y - this.height;
-                    this.jumpsLeft = 1;
-                    this.dashAvailable = true;
                     this.createJumpParticles();
 
                     // Create spark particles for hitting spikes
@@ -1593,7 +1610,9 @@
                     fading: false,
                     delayTimer: 90, // Wait 1.5 seconds (90 frames at 60fps) on first frame
                     pogoed: false, // Only continues animation after being pogoed
-                    owner: this.label // Track which player owns this shade
+                    owner: this.label, // Track which player owns this shade
+                    attackTimer: 0, // Shade attack animation timer
+                    attackCooldown: 0 // Cooldown between shade attacks
                 });
 
                 this.x = this.checkpointX;
@@ -2013,8 +2032,9 @@
             right: 'd',
             jump: 'w',
             down: 's',
-            dash: 'Shift',
-            attack: 'q'
+            dash: 'shiftleft',
+            attack: 'q',
+            attackAlt: null
         }, 'P1');
 
         const player2 = new Player(150, 400, '#88ccff', {
@@ -2023,8 +2043,53 @@
             jump: 'i',
             down: 'k',
             dash: 'b',
-            attack: 'u'
+            attack: 'u',
+            attackAlt: null
         }, 'P2');
+
+        // Control scheme presets
+        const p1ControlSchemes = {
+            left: { left: 'a', right: 'd', jump: 'w', down: 's', dash: 'shiftleft', attack: 'q', attackAlt: null },
+            right: { left: 'a', right: 'd', jump: 'w', down: 's', dash: 'v', attack: 'q', attackAlt: 'control' }
+        };
+
+        const p2ControlSchemes = {
+            left: { left: 'j', right: 'l', jump: 'i', down: 'k', dash: 'b', attack: 'u', attackAlt: null },
+            right: { left: 'k', right: ';', jump: 'o', down: 'l', dash: 'shiftright', attack: 'i', attackAlt: ' ' }
+        };
+
+        let p1Hand = 'left';
+        let p2Hand = 'left';
+
+        function setP1Controls(hand) {
+            p1Hand = hand;
+            const scheme = p1ControlSchemes[hand];
+            player1.controls.left = scheme.left;
+            player1.controls.right = scheme.right;
+            player1.controls.jump = scheme.jump;
+            player1.controls.down = scheme.down;
+            player1.controls.dash = scheme.dash;
+            player1.controls.attack = scheme.attack;
+            player1.controls.attackAlt = scheme.attackAlt;
+
+            // Update UI
+            document.getElementById('p1controls').textContent = hand === 'left' ? 'WASD/Shift/Q' : 'WASD/V/Q+Ctrl';
+        }
+
+        function setP2Controls(hand) {
+            p2Hand = hand;
+            const scheme = p2ControlSchemes[hand];
+            player2.controls.left = scheme.left;
+            player2.controls.right = scheme.right;
+            player2.controls.jump = scheme.jump;
+            player2.controls.down = scheme.down;
+            player2.controls.dash = scheme.dash;
+            player2.controls.attack = scheme.attack;
+            player2.controls.attackAlt = scheme.attackAlt;
+
+            // Update UI
+            document.getElementById('p2controls').textContent = hand === 'left' ? 'IJKL/B/U' : "OKL;/Shift/I+Space";
+        }
 
         // Also support Space for P1 and Enter for P2
         const originalP1Jump = player1.controls.jump;
@@ -2497,9 +2562,11 @@
         window.addEventListener('keydown', (e) => {
             keys[e.key.toLowerCase()] = true;
             keys[e.key] = true;
+            // Also track by code for distinguishing left/right shift
+            keys[e.code.toLowerCase()] = true;
 
             // Prevent default for game keys
-            if (['w', 'a', 's', 'd', 'q', ' ', 'Shift', 'i', 'j', 'k', 'l', 'u', '/'].includes(e.key)) {
+            if (['w', 'a', 's', 'd', 'q', 'e', ' ', 'Shift', 'Control', 'v', 'i', 'j', 'k', 'l', 'u', 'o', 'p', ';', 'b', '/'].includes(e.key)) {
                 e.preventDefault();
             }
         });
@@ -2507,6 +2574,7 @@
         window.addEventListener('keyup', (e) => {
             keys[e.key.toLowerCase()] = false;
             keys[e.key] = false;
+            keys[e.code.toLowerCase()] = false;
         });
 
         // Support both Space and W for P1, Enter and ArrowUp for P2
@@ -2638,6 +2706,64 @@
                         -frame.width / 4, -frame.height / 4,
                         frame.width / 2, frame.height / 2
                     );
+
+                    // Draw shade attack slash - same as player slash
+                    if (anim.attackTimer > 0) {
+                        const slashProgress = (15 - anim.attackTimer) / 15;
+                        const growFactor = 1 + slashProgress * 0.15;
+
+                        // Side attack style
+                        const outerRadiusX = 40 * growFactor;
+                        const outerRadiusY = 16 * growFactor;
+                        const innerRadiusX = 26 * growFactor;
+                        const innerRadiusY = 6 * growFactor;
+                        const innerOffsetY = -5 * growFactor;
+                        const slashX = 20;
+                        const slashY = 0;
+                        const baseStartAngle = -Math.PI * 0.55;
+                        const baseEndAngle = Math.PI * 0.85;
+
+                        ctx.save();
+                        ctx.translate(slashX, slashY);
+
+                        // Draw slash in segments
+                        const numSegments = 20;
+                        const totalArc = baseEndAngle - baseStartAngle;
+                        const segmentArc = totalArc / numSegments;
+
+                        for (let i = 0; i < numSegments; i++) {
+                            const segmentDelay = i * 0.03;
+                            const segmentProgress = Math.max(0, Math.min(1, (slashProgress - segmentDelay) * 1.8));
+                            const appearProgress = Math.min(1, segmentProgress * 3);
+                            const fadeProgress = Math.max(0, (segmentProgress - 0.3) * 1.4);
+                            const segmentAlpha = appearProgress * (1 - fadeProgress);
+
+                            if (segmentAlpha <= 0) continue;
+
+                            const segStart = baseStartAngle + i * segmentArc;
+                            const segEnd = baseStartAngle + (i + 1) * segmentArc;
+
+                            ctx.fillStyle = `rgba(200, 200, 200, ${segmentAlpha})`;
+                            ctx.beginPath();
+                            ctx.ellipse(0, 0, outerRadiusX, outerRadiusY, 0, segStart, segEnd);
+                            ctx.ellipse(0, innerOffsetY, innerRadiusX, innerRadiusY, 0, segEnd, segStart, true);
+                            ctx.closePath();
+                            ctx.fill();
+                        }
+
+                        // Dark edge on the outer rim
+                        const edgeAlpha = Math.max(0, 1 - (slashProgress - 0.3) * 1.5);
+                        if (edgeAlpha > 0) {
+                            ctx.strokeStyle = `rgba(200, 200, 200, ${edgeAlpha * 0.8})`;
+                            ctx.lineWidth = 1.5;
+                            ctx.beginPath();
+                            ctx.ellipse(0, 0, outerRadiusX, outerRadiusY, 0, baseStartAngle, baseEndAngle);
+                            ctx.stroke();
+                        }
+
+                        ctx.restore();
+                    }
+
                     ctx.restore();
 
                     // Handle fading on last frame
@@ -2742,14 +2868,83 @@
                             hitboxX + hitboxWidth > shadeX &&
                             hitboxY < shadeY + shadeSize &&
                             hitboxY + hitboxHeight > shadeY) {
-                            // Pogo bounce!
-                            player.vy = -POGO_BOUNCE;
-                            player.jumpsLeft = 1;
-                            player.dashAvailable = true;
+                            // Pogo bounce! (only bounce once per attack)
+                            if (!player.pogoBounced) {
+                                player.vy = -POGO_BOUNCE;
+                                player.jumpsLeft = 1;
+                                player.dashAvailable = true;
+                                player.pogoBounced = true;
+                            }
                             shade.pogoed = true; // Trigger full death animation
                         }
                     }
                 });
+            });
+
+            // Shade attack input and collision
+            deathAnimations.forEach(shade => {
+                // Update shade attack timers
+                if (shade.attackTimer > 0) shade.attackTimer--;
+                if (shade.attackCooldown > 0) shade.attackCooldown--;
+
+                // Check for shade attack input (only if shade is idle - not pogoed)
+                if (!shade.pogoed && shade.attackCooldown <= 0) {
+                    let shouldAttack = false;
+                    // P1 shade attack: E key
+                    if (shade.owner === 'P1' && keys['e']) {
+                        shouldAttack = true;
+                    }
+                    // P2 shade attack: O for left hand, P for right hand
+                    if (shade.owner === 'P2') {
+                        if (p2Hand === 'left' && keys['o']) shouldAttack = true;
+                        if (p2Hand === 'right' && keys['p']) shouldAttack = true;
+                    }
+
+                    if (shouldAttack) {
+                        shade.attackTimer = 15;
+                        shade.attackCooldown = 30;
+                    }
+                }
+
+                // Check shade attack collision with other player
+                if (shade.attackTimer > 0 && shade.attackTimer > 10) {
+                    const otherPlayer = shade.owner === 'P1' ? player2 : player1;
+                    const shadeSize = 40;
+                    const hitboxRange = 45;
+                    const hitboxWidth = hitboxRange;
+                    const hitboxHeight = 30;
+                    const hitboxX = shade.x + (shade.facing > 0 ? shadeSize/2 : -shadeSize/2 - hitboxWidth);
+                    const hitboxY = shade.y - hitboxHeight/2;
+
+                    // Check collision with other player
+                    if (otherPlayer.invincibilityFrames <= 0 &&
+                        hitboxX < otherPlayer.x + otherPlayer.width &&
+                        hitboxX + hitboxWidth > otherPlayer.x &&
+                        hitboxY < otherPlayer.y + otherPlayer.height &&
+                        hitboxY + hitboxHeight > otherPlayer.y) {
+                        // Hit! Apply knockback
+                        otherPlayer.vx = shade.facing * 10;
+                        otherPlayer.vy = -5;
+                        otherPlayer.invincibilityFrames = 30;
+                        otherPlayer.knockbackFrames = 10;
+                    }
+
+                    // Check collision with other shades
+                    deathAnimations.forEach(otherShade => {
+                        if (otherShade === shade || otherShade.pogoed) return; // Skip self and already defeated shades
+
+                        const otherShadeX = otherShade.x - shadeSize / 2;
+                        const otherShadeY = otherShade.y - shadeSize / 2;
+
+                        if (hitboxX < otherShadeX + shadeSize &&
+                            hitboxX + hitboxWidth > otherShadeX &&
+                            hitboxY < otherShadeY + shadeSize &&
+                            hitboxY + hitboxHeight > otherShadeY) {
+                            // Hit another shade - defeat it
+                            otherShade.pogoed = true;
+                        }
+                    });
+                }
             });
 
             // Handle clash - both players attacking at same time
@@ -2827,8 +3022,66 @@
             ctx.fillText('P1', splitX / 2, 30);
             ctx.fillText('P2', splitX + splitX / 2, 30);
 
+            // Draw L/R hand toggle boxes
+            const boxW = 40, boxH = 20;
+
+            // P1 toggle (top-right of P1 viewport)
+            const p1BoxX = splitX - 10 - boxW;
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+            ctx.fillRect(p1BoxX, 10, boxW, boxH);
+            ctx.strokeStyle = '#888';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(p1BoxX, 10, boxW, boxH);
+            ctx.fillStyle = p1Hand === 'left' ? '#88ff88' : '#888';
+            ctx.font = '12px monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText('L', p1BoxX + 10, 24);
+            ctx.fillStyle = p1Hand === 'right' ? '#88ff88' : '#888';
+            ctx.fillText('R', p1BoxX + 30, 24);
+
+            // P2 toggle (top-left of P2 viewport)
+            const p2BoxX = splitX + 10;
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+            ctx.fillRect(p2BoxX, 10, boxW, boxH);
+            ctx.strokeStyle = '#888';
+            ctx.strokeRect(p2BoxX, 10, boxW, boxH);
+            ctx.fillStyle = p2Hand === 'left' ? '#88ccff' : '#888';
+            ctx.fillText('L', p2BoxX + 10, 24);
+            ctx.fillStyle = p2Hand === 'right' ? '#88ccff' : '#888';
+            ctx.fillText('R', p2BoxX + 30, 24);
+
             requestAnimationFrame(gameLoop);
         }
+
+        // Click handler for L/R toggle
+        canvas.addEventListener('click', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+
+            const boxW = 40, boxH = 20;
+            const splitX = canvas.width / 2;
+
+            // P1 toggle box (top-right of P1 viewport)
+            const p1BoxX = splitX - 10 - boxW;
+            if (x >= p1BoxX && x <= p1BoxX + boxW && y >= 10 && y <= 10 + boxH) {
+                if (x < p1BoxX + 20) {
+                    setP1Controls('left');
+                } else {
+                    setP1Controls('right');
+                }
+            }
+
+            // P2 toggle box (top-left of P2 viewport)
+            const p2BoxX = splitX + 10;
+            if (x >= p2BoxX && x <= p2BoxX + boxW && y >= 10 && y <= 10 + boxH) {
+                if (x < p2BoxX + 20) {
+                    setP2Controls('left');
+                } else {
+                    setP2Controls('right');
+                }
+            }
+        });
 
         // Start game
         gameLoop();
