@@ -134,7 +134,8 @@
             longNail: { name: 'Long Nail', notches: 1, description: 'Slightly increases nail range' },
             quickSlash: { name: 'Quick Slash', notches: 2, description: 'Decreases attack cooldown' },
             markOfPride: { name: 'Mark of Pride', notches: 2, description: 'Greatly increases nail range' },
-            tripleJump: { name: 'Triple Jump', notches: 3, description: 'Jump 3 times instead of 2' }
+            tripleJump: { name: 'Triple Jump', notches: 3, description: 'Jump 3 times instead of 2' },
+            dashmaster: { name: 'Dashmaster', notches: 3, description: 'Dash 2 times instead of 1' }
         };
         const MAX_NOTCHES = 3;
 
@@ -282,7 +283,7 @@
                 this.attackDirection = 0; // 0 = horizontal, 1 = down, -1 = up
 
                 this.dashTimer = 0;
-                this.dashAvailable = true;
+                this.dashesLeft = 1; // Will be set to getMaxDashes when landing
                 this.dashDirection = { x: 0, y: 0 };
 
                 this.checkpointX = x;
@@ -429,11 +430,11 @@
                     }
 
                     // Dash
-                    if (keys[this.controls.dash] && !this.dashPressed && this.dashAvailable) {
+                    if (keys[this.controls.dash] && !this.dashPressed && this.dashesLeft > 0) {
                         this.dashPressed = true;
                         this.dashTimer = DASH_DURATION;
                         this.wingFadeSpeed = 5; // Quick fade wings when dashing
-                        this.dashAvailable = false;
+                        this.dashesLeft--;
 
                         // Determine dash direction
                         let dashX = 0;
@@ -757,7 +758,7 @@
                         if (this.attackDirection === 1 && !this.pogoBounced) {
                             this.vy = -POGO_BOUNCE;
                             this.jumpsLeft = getMaxJumps(this) - 1;
-                            this.dashAvailable = true;
+                            this.dashesLeft = getMaxDashes(this);
                             this.pogoBounced = true;
                         } else if (this.attackDirection !== 1) {
                             // Small recoil for attacker (non-pogo attacks)
@@ -1493,7 +1494,7 @@
                         this.vy = 0;
                         this.onGround = true;
                         this.jumpsLeft = getMaxJumps(this);
-                        this.dashAvailable = true;
+                        this.dashesLeft = getMaxDashes(this);
 
                     } else if (minOverlap === overlapBottom && this.vy < 0) {
                         // Hitting ceiling
@@ -1507,7 +1508,7 @@
                             this.onWall = true;
                             this.wallDirection = -1;
                             this.jumpsLeft = getMaxJumps(this);
-                            this.dashAvailable = true;
+                            this.dashesLeft = getMaxDashes(this);
                             this.wingFadeSpeed = 5; // Quick fade wings when wall sliding
                         }
                     } else if (minOverlap === overlapRight && this.vx < 0) {
@@ -1518,7 +1519,7 @@
                             this.onWall = true;
                             this.wallDirection = 1;
                             this.jumpsLeft = getMaxJumps(this);
-                            this.dashAvailable = true;
+                            this.dashesLeft = getMaxDashes(this);
                             this.wingFadeSpeed = 5; // Quick fade wings when wall sliding
                         }
                     }
@@ -1545,7 +1546,7 @@
                     if (!this.pogoBounced) {
                         this.vy = -POGO_BOUNCE;
                         this.jumpsLeft = getMaxJumps(this) - 1;
-                        this.dashAvailable = true;
+                        this.dashesLeft = getMaxDashes(this);
                         this.pogoBounced = true;
                     }
                     this.y = spike.y - this.height;
@@ -1664,7 +1665,7 @@
                 this.vx = 0;
                 this.vy = 0;
                 this.dashTimer = 0;
-                this.dashAvailable = true;
+                this.dashesLeft = getMaxDashes(this);
 
                 // Hollow Knight style death - void/soul burst
                 // Main void explosion
@@ -2650,8 +2651,8 @@
 
         // Update UI
         function updateUI() {
-            document.getElementById('p1dash').textContent = player1.dashAvailable ? 'Ready' : 'Used';
-            document.getElementById('p2dash').textContent = player2.dashAvailable ? 'Ready' : 'Used';
+            document.getElementById('p1dash').textContent = player1.dashesLeft + '/' + getMaxDashes(player1);
+            document.getElementById('p2dash').textContent = player2.dashesLeft + '/' + getMaxDashes(player2);
         }
 
         // Show win message
@@ -2672,6 +2673,10 @@
 
         function getMaxJumps(player) {
             return hasCharm(player, 'tripleJump') ? 3 : 2;
+        }
+
+        function getMaxDashes(player) {
+            return hasCharm(player, 'dashmaster') ? 2 : 1;
         }
 
         function toggleCharm(playerNum, charmId) {
@@ -2810,7 +2815,7 @@
             player1.vy = 0;
             player1.checkpointX = 100;
             player1.checkpointY = 400;
-            player1.dashAvailable = true;
+            player1.dashesLeft = getMaxDashes(player1);
             player1.particles = [];
             player1.knockbackFrames = 0;
 
@@ -2820,7 +2825,7 @@
             player2.vy = 0;
             player2.checkpointX = 150;
             player2.checkpointY = 400;
-            player2.dashAvailable = true;
+            player2.dashesLeft = getMaxDashes(player2);
             player2.particles = [];
             player2.knockbackFrames = 0;
 
@@ -2831,6 +2836,9 @@
 
             // Reset checkpoints
             checkpoints.forEach(c => c.activated = false);
+
+            // Clear all shades
+            deathAnimations.length = 0;
         }
 
         // Render the game world with a specific camera
@@ -3059,7 +3067,7 @@
                             if (!player.pogoBounced) {
                                 player.vy = -POGO_BOUNCE;
                                 player.jumpsLeft = getMaxJumps(player) - 1;
-                                player.dashAvailable = true;
+                                player.dashesLeft = getMaxDashes(player);
                                 player.pogoBounced = true;
                             }
                             shade.pogoed = true; // Trigger full death animation
