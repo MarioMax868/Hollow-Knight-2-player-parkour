@@ -94,10 +94,10 @@
             <canvas id="gameCanvas" width="1200" height="800"></canvas>
             <div id="ui">
                 <div class="player-indicator" style="color: #e0e0e0;">
-                    P1: <span id="p1controls">WASD/Shift/Q</span> - Dash: <span id="p1dash">Ready</span>
+                    P1: <span id="p1controls">WASD/Shift/Q</span> - Dash: <span id="p1dash">Ready</span> <span id="p1hearts" style="color: #5bc0de;"></span>
                 </div>
                 <div class="player-indicator" style="color: #88ccff;">
-                    P2: <span id="p2controls">IJKL/B/U</span> - Dash: <span id="p2dash">Ready</span>
+                    P2: <span id="p2controls">IJKL/B/U</span> - Dash: <span id="p2dash">Ready</span> <span id="p2hearts" style="color: #5bc0de;"></span>
                 </div>
                 <div style="margin-top: 10px; padding: 5px 10px; background: rgba(0, 0, 0, 0.5); border-radius: 3px;">
                     Controls: Jump | Dash | Attack (Down/Up for directional)
@@ -134,10 +134,11 @@
             longNail: { name: 'Long Nail', notches: 1, description: 'Slightly increases nail range' },
             quickSlash: { name: 'Quick Slash', notches: 2, description: 'Decreases attack cooldown' },
             markOfPride: { name: 'Mark of Pride', notches: 2, description: 'Greatly increases nail range' },
-            tripleJump: { name: 'Triple Jump', notches: 3, description: 'Jump 3 times instead of 2' },
-            dashmaster: { name: 'Dashmaster', notches: 3, description: 'Dash 2 times instead of 1' }
+            tripleJump: { name: 'Triple Jump', notches: 4, description: 'Jump 3 times instead of 2' },
+            dashmaster: { name: 'Dashmaster', notches: 4, description: 'Dash 2 times instead of 1' },
+            lifebloodHeart: { name: 'Lifeblood Heart', notches: 4, description: '2 extra masks - respawn at last platform instead of checkpoint' }
         };
-        const MAX_NOTCHES = 3;
+        const MAX_NOTCHES = 4;
 
         // Player charm loadouts
         let p1Charms = [];
@@ -165,7 +166,8 @@
                 fall:       { row: 9,  startCol: 4,  frames: 4 },   // Falling (using later jump frames)
                 dash:       { row: 4,  startCol: 1,  frames: 5 },   // Dashing (row 5, columns 2-6 counting from 1)
                 wallSlide:  { row: 3,  startCol: 8,  frames: 4 },   // Wall sliding (row 4, cols 9-12 counting from 1)
-                death:      { row: 10, startCol: 0,  frames: 12 }   // Death animation (row 11, entire row)
+                death:      { row: 10, startCol: 0,  frames: 12 },  // Death animation (row 11, entire row)
+                lifebloodRespawn: { row: 7, startCol: 10, frames: 5 }  // Lifeblood respawn animation (row 8, cols 11-15)
             },
             getFrame: function(animName, frameIndex) {
                 const anim = this.animations[animName] || this.animations.idle;
@@ -313,10 +315,40 @@
                 this.knockbackFrames = 0; // Prevents movement during knockback
                 this.wallJumpFrames = 0; // Prevents movement override during wall jump
                 this.parryWindow = 0; // Extended window for parrying attacks
+
+                // Lifeblood Heart properties
+                this.lifebloodHearts = 0; // Current hearts (set by getMaxHearts when charm equipped)
+                this.lastSolidX = x; // Last solid platform position
+                this.lastSolidY = y;
+                this.respawnAnimTimer = 0; // Timer for lifeblood respawn animation (blocks movement)
             }
 
             update() {
                 if (gameWon) return;
+
+                // Handle lifeblood respawn animation - block all movement but update particles
+                if (this.respawnAnimTimer > 0) {
+                    this.respawnAnimTimer--;
+                    this.vx = 0;
+                    this.vy = 0;
+                    // Still update particles during animation
+                    this.particles = this.particles.filter(p => {
+                        if (p.type === 'shadeTrail') {
+                            if (p.delay > 0) {
+                                p.delay--;
+                            } else {
+                                p.x += (p.targetX - p.x) * 0.12;
+                                p.y += (p.targetY - p.y) * 0.12;
+                            }
+                        } else {
+                            p.x += p.vx;
+                            p.y += p.vy;
+                        }
+                        p.life--;
+                        return p.life > 0;
+                    });
+                    return; // Skip all other updates
+                }
 
                 // Handle dash
                 if (this.dashTimer > 0) {
@@ -693,29 +725,32 @@
 
                     if (this.attackDirection === 1) {
                         // Down attack (pogo) - hitbox below player, only when moving down
+                        // Visual: outerRadiusX=18 (width 36), crescent ~45 tall, slashY=35
                         if (this.vy <= 0) {
                             // Not moving down, no hitbox
                             return false;
                         }
-                        hitboxWidth = 90 * nailMultiplier;
-                        hitboxHeight = 50 * nailMultiplier;
+                        hitboxWidth = 36 * nailMultiplier;
+                        hitboxHeight = 45 * nailMultiplier;
                         hitboxX = this.x + this.width / 2 - hitboxWidth / 2;
                         hitboxY = this.y + this.height;
                     } else if (this.attackDirection === -1) {
                         // Up attack - hitbox above player
-                        hitboxWidth = 80 * nailMultiplier;
-                        hitboxHeight = 30 * nailMultiplier;
+                        // Visual: outerRadiusX=40, outerRadiusY=16 → ~90x35 with growFactor
+                        hitboxWidth = 90 * nailMultiplier;
+                        hitboxHeight = 35 * nailMultiplier;
                         hitboxX = this.x + this.width / 2 - hitboxWidth / 2;
                         hitboxY = this.y - hitboxHeight;
                     } else {
                         // Horizontal attack - hitbox to the side
+                        // Visual: outerRadiusX=40, outerRadiusY=16, slashX=20 → ~60 range, 35 height
                         // When wall sliding, attack goes away from wall
                         const attackFacing = this.onWall ? -this.facing : this.facing;
-                        const hitboxRange = 40 * nailMultiplier;
+                        const hitboxRange = 60 * nailMultiplier;
                         hitboxX = this.x + (attackFacing > 0 ? this.width : -hitboxRange);
-                        hitboxY = this.y;
+                        hitboxY = this.y + this.height / 2 - 17 * nailMultiplier;
                         hitboxWidth = hitboxRange;
-                        hitboxHeight = this.height;
+                        hitboxHeight = 35 * nailMultiplier;
                     }
 
                     // Check collision
@@ -753,6 +788,25 @@
                             otherPlayer.knockbackFrames = 8;
                         }
                         otherPlayer.invincibilityFrames = 30;
+
+                        // Lose a lifeblood heart if hit
+                        if (otherPlayer.lifebloodHearts > 0) {
+                            otherPlayer.lifebloodHearts--;
+                            // Blue lifeblood burst when losing heart
+                            for (let i = 0; i < 8; i++) {
+                                const angle = (i / 8) * Math.PI * 2;
+                                const speed = 1.5 + Math.random() * 1.5;
+                                otherPlayer.particles.push({
+                                    x: otherPlayer.x + otherPlayer.width / 2,
+                                    y: otherPlayer.y + otherPlayer.height / 2,
+                                    vx: Math.cos(angle) * speed,
+                                    vy: Math.sin(angle) * speed,
+                                    life: 25,
+                                    color: '#5bc0de',
+                                    type: 'soul'
+                                });
+                            }
+                        }
 
                         // Pogo bounce if down attacking another player (only once per attack)
                         if (this.attackDirection === 1 && !this.pogoBounced) {
@@ -793,8 +847,19 @@
                 let animName = 'idle';
                 let frameIndex = 0;
 
+                // Lifeblood respawn animation takes priority
+                if (this.respawnAnimTimer > 0) {
+                    animName = 'lifebloodRespawn';
+                    // Frames 1-2 fast (6 ticks each), frames 3-5 slower (16 ticks each)
+                    const elapsed = 60 - this.respawnAnimTimer;
+                    if (elapsed < 6) frameIndex = 0;
+                    else if (elapsed < 12) frameIndex = 1;
+                    else if (elapsed < 28) frameIndex = 2;
+                    else if (elapsed < 44) frameIndex = 3;
+                    else frameIndex = 4;
+                }
                 // Knight base animation
-                if (isDashing) {
+                else if (isDashing) {
                     animName = 'dash';
                     // Show all 5 frames during dash (DASH_DURATION is 12, so 12/5 ≈ 2.4 per frame)
                     frameIndex = Math.min(Math.floor((DASH_DURATION - this.dashTimer) / 2.5), 4);
@@ -842,8 +907,8 @@
                 // Flip sprite based on facing direction
                 ctx.scale(this.facing, 1);
 
-                // Flash effect when invincible
-                if (this.invincibilityFrames > 0 && Math.floor(this.invincibilityFrames / 4) % 2 === 0) {
+                // Flash effect when invincible (but not during respawn animation)
+                if (this.invincibilityFrames > 0 && this.respawnAnimTimer <= 0 && Math.floor(this.invincibilityFrames / 4) % 2 === 0) {
                     ctx.globalAlpha = 0.4;
                 }
 
@@ -1495,6 +1560,9 @@
                         this.onGround = true;
                         this.jumpsLeft = getMaxJumps(this);
                         this.dashesLeft = getMaxDashes(this);
+                        // Track last solid position for lifeblood heart respawn
+                        this.lastSolidX = this.x;
+                        this.lastSolidY = this.y;
 
                     } else if (minOverlap === overlapBottom && this.vy < 0) {
                         // Hitting ceiling
@@ -1532,7 +1600,7 @@
                 let nailMultiplier = 1.0;
                 if (hasCharm(this, 'longNail')) nailMultiplier *= 1.15;
                 if (hasCharm(this, 'markOfPride')) nailMultiplier *= 1.25;
-                const pogoSlashWidth = 45 * nailMultiplier;
+                const pogoSlashWidth = 36 * nailMultiplier;
                 const playerCenterX = this.x + this.width / 2;
                 const slashHitsSpike = (playerCenterX + pogoSlashWidth > spike.x) &&
                                        (playerCenterX - pogoSlashWidth < spike.x + spike.width) &&
@@ -1594,6 +1662,8 @@
                     this.checkpointY = checkpoint.y - this.height - 5;
                     checkpoint.activated = true;
                     checkpoint.particleTimer = 25; // Short burst of particles
+                    // Refill lifeblood hearts at checkpoint
+                    this.lifebloodHearts = getMaxHearts(this);
                 }
             }
 
@@ -1613,6 +1683,49 @@
             die() {
                 const deathX = this.x + this.width / 2;
                 const deathY = this.y + this.height / 2;
+
+                // Check for lifeblood hearts - respawn at last solid platform instead of checkpoint
+                if (this.lifebloodHearts > 0) {
+                    this.lifebloodHearts--;
+
+                    // Respawn at last solid platform
+                    this.x = this.lastSolidX;
+                    this.y = this.lastSolidY;
+                    this.vx = 0;
+                    this.vy = 0;
+                    this.dashTimer = 0;
+                    this.dashesLeft = getMaxDashes(this);
+                    this.invincibilityFrames = 90; // Invincibility during and after animation
+                    this.respawnAnimTimer = 60; // Frames 1-2 fast + frames 3-5 slow = 60 ticks (~1 second) - blocks movement
+
+                    // Lifeblood burst particles (blue)
+                    for (let i = 0; i < 12; i++) {
+                        const angle = (i / 12) * Math.PI * 2;
+                        const speed = 2 + Math.random() * 2;
+                        this.particles.push({
+                            x: deathX,
+                            y: deathY,
+                            vx: Math.cos(angle) * speed,
+                            vy: Math.sin(angle) * speed,
+                            life: 30,
+                            color: '#5bc0de',
+                            type: 'soul'
+                        });
+                    }
+                    // Blue lifeblood wisps
+                    for (let i = 0; i < 6; i++) {
+                        this.particles.push({
+                            x: deathX + (Math.random() - 0.5) * 15,
+                            y: deathY,
+                            vx: (Math.random() - 0.5) * 2,
+                            vy: -Math.random() * 2 - 1,
+                            life: 35,
+                            color: '#87ceeb',
+                            type: 'soul'
+                        });
+                    }
+                    return; // Don't create shade, don't go to checkpoint
+                }
 
                 // Find and remove existing shade from this player, create trail particles
                 // Only remove if not already pogoed (playing full animation)
@@ -1666,6 +1779,9 @@
                 this.vy = 0;
                 this.dashTimer = 0;
                 this.dashesLeft = getMaxDashes(this);
+
+                // Refill lifeblood hearts when respawning at checkpoint
+                this.lifebloodHearts = getMaxHearts(this);
 
                 // Hollow Knight style death - void/soul burst
                 // Main void explosion
@@ -2653,6 +2769,11 @@
         function updateUI() {
             document.getElementById('p1dash').textContent = player1.dashesLeft + '/' + getMaxDashes(player1);
             document.getElementById('p2dash').textContent = player2.dashesLeft + '/' + getMaxDashes(player2);
+            // Show lifeblood hearts if player has the charm
+            const p1MaxHearts = getMaxHearts(player1);
+            const p2MaxHearts = getMaxHearts(player2);
+            document.getElementById('p1hearts').textContent = p1MaxHearts > 0 ? '- Hearts: ' + player1.lifebloodHearts + '/' + p1MaxHearts : '';
+            document.getElementById('p2hearts').textContent = p2MaxHearts > 0 ? '- Hearts: ' + player2.lifebloodHearts + '/' + p2MaxHearts : '';
         }
 
         // Show win message
@@ -2677,6 +2798,10 @@
 
         function getMaxDashes(player) {
             return hasCharm(player, 'dashmaster') ? 2 : 1;
+        }
+
+        function getMaxHearts(player) {
+            return hasCharm(player, 'lifebloodHeart') ? 2 : 0;
         }
 
         function toggleCharm(playerNum, charmId) {
@@ -2816,6 +2941,9 @@
             player1.checkpointX = 100;
             player1.checkpointY = 400;
             player1.dashesLeft = getMaxDashes(player1);
+            player1.lifebloodHearts = getMaxHearts(player1);
+            player1.lastSolidX = 100;
+            player1.lastSolidY = 400;
             player1.particles = [];
             player1.knockbackFrames = 0;
 
@@ -2826,6 +2954,9 @@
             player2.checkpointX = 150;
             player2.checkpointY = 400;
             player2.dashesLeft = getMaxDashes(player2);
+            player2.lifebloodHearts = getMaxHearts(player2);
+            player2.lastSolidX = 150;
+            player2.lastSolidY = 400;
             player2.particles = [];
             player2.knockbackFrames = 0;
 
@@ -3052,9 +3183,12 @@
                         const shadeX = shade.x - shadeSize / 2;
                         const shadeY = shade.y - shadeSize / 2;
 
-                        // Player's down attack hitbox (below player)
-                        const hitboxWidth = 50;
-                        const hitboxHeight = 35;
+                        // Player's down attack hitbox (below player) - scaled by nail charms
+                        let nailMultiplier = 1.0;
+                        if (hasCharm(player, 'longNail')) nailMultiplier *= 1.15;
+                        if (hasCharm(player, 'markOfPride')) nailMultiplier *= 1.25;
+                        const hitboxWidth = 36 * nailMultiplier;
+                        const hitboxHeight = 45 * nailMultiplier;
                         const hitboxX = player.x + player.width / 2 - hitboxWidth / 2;
                         const hitboxY = player.y + player.height;
 
@@ -3303,6 +3437,9 @@
             if (charmSelectActive && e.code === 'Space') {
                 charmSelectActive = false;
                 window.charmBoxes = null;
+                // Initialize lifeblood hearts based on charm selection
+                player1.lifebloodHearts = getMaxHearts(player1);
+                player2.lifebloodHearts = getMaxHearts(player2);
             }
         });
 
