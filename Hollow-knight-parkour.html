@@ -120,12 +120,28 @@
         const JUMP_POWER = 10;
         const WALL_JUMP_POWER_X = 7;
         const WALL_JUMP_POWER_Y = 11;
-        const WALL_SLIDE_SPEED = 2.5;
+        const WALL_SLIDE_SPEED = 4;
         const DASH_SPEED = 10;
         const DASH_DURATION = 10;
         const DASH_COOLDOWN = 60; // frames
         const POGO_BOUNCE = 12;
         const PLAYER_SIZE = 20;
+
+        // Charm definitions
+        const CHARMS = {
+            sprintmaster: { name: 'Sprintmaster', notches: 1, description: 'Increases walking speed' },
+            wallCling: { name: 'Wall Cling', notches: 1, description: 'Stop sliding on walls' },
+            longNail: { name: 'Long Nail', notches: 1, description: 'Slightly increases nail range' },
+            quickSlash: { name: 'Quick Slash', notches: 2, description: 'Decreases attack cooldown' },
+            markOfPride: { name: 'Mark of Pride', notches: 2, description: 'Greatly increases nail range' },
+            tripleJump: { name: 'Triple Jump', notches: 3, description: 'Jump 3 times instead of 2' }
+        };
+        const MAX_NOTCHES = 3;
+
+        // Player charm loadouts
+        let p1Charms = [];
+        let p2Charms = [];
+        let charmSelectActive = true; // Start with charm selection
 
         // Game state
         let gameWon = false;
@@ -338,6 +354,10 @@
                     if (keys[this.controls.right]) moveX += 1;
 
                     // Knockback frames countdown
+                    // Calculate speed with Sprintmaster bonus
+                    const speedMultiplier = hasCharm(this, 'sprintmaster') ? 1.2 : 1.0;
+                    const effectiveSpeed = PLAYER_SPEED * speedMultiplier;
+
                     if (this.knockbackFrames > 0) {
                         this.knockbackFrames--;
                         // Apply friction during knockback but don't override velocity
@@ -347,10 +367,10 @@
                         this.wallJumpFrames--;
                         this.vx *= 0.95; // Slight friction
                         // Allow some influence but don't fully override
-                        this.vx += moveX * PLAYER_SPEED * 0.15;
+                        this.vx += moveX * effectiveSpeed * 0.15;
                     } else {
                         // Normal movement (only when not in knockback or wall jump)
-                        this.vx = moveX * PLAYER_SPEED;
+                        this.vx = moveX * effectiveSpeed;
                     }
 
                     // Update facing direction (while wall sliding, always face toward the wall)
@@ -361,8 +381,12 @@
                     }
 
                     // Apply gravity
-                    if (this.onWall && this.vy > 0) {
-                        // Wall slide
+                    if (this.onWall && hasCharm(this, 'wallCling')) {
+                        // Wall Cling - completely stop on wall
+                        if (this.vy > 0) this.vy = 0;
+                        // Don't apply gravity while clinging
+                    } else if (this.onWall && this.vy > 0) {
+                        // Normal wall slide
                         this.vy += GRAVITY * 0.3;
                         if (this.vy > WALL_SLIDE_SPEED) {
                             this.vy = WALL_SLIDE_SPEED;
@@ -380,13 +404,13 @@
                                 // Wall jump - always pushes away from wall
                                 this.vx = this.wallDirection * WALL_JUMP_POWER_X;
                                 this.vy = -WALL_JUMP_POWER_Y;
-                                this.jumpsLeft = 1; // Can still double jump after wall jump
+                                this.jumpsLeft = getMaxJumps(this) - 1; // Can still double/triple jump after wall jump
                                 this.wallJumpFrames = 12; // Prevent input override for a short time
                                 this.createJumpParticles();
                             } else {
                                 // Normal jump (or coyote time jump)
                                 this.vy = -JUMP_POWER;
-                                this.jumpsLeft = 1;
+                                this.jumpsLeft = getMaxJumps(this) - 1;
                                 this.coyoteTime = 0; // Use up coyote time
                                 this.createJumpParticles();
                             }
@@ -613,7 +637,8 @@
             attack() {
                 if (this.attackCooldown <= 0 && this.attackTimer <= 0) {
                     this.attackTimer = 15;
-                    this.attackCooldown = 25;
+                    // Quick Slash reduces cooldown (68% faster = 32% of normal cooldown)
+                    this.attackCooldown = hasCharm(this, 'quickSlash') ? 8 : 25;
                     this.parryWindow = 25; // Extended parry window (longer than attack)
                     this.pogoBounced = false; // Reset pogo bounce for new attack
                     if (this.attackDirection === 0) {
@@ -660,27 +685,32 @@
                     // Hitbox varies based on attack direction
                     let hitboxX, hitboxY, hitboxWidth, hitboxHeight;
 
+                    // Calculate nail range multiplier from charms (stacks)
+                    let nailMultiplier = 1.0;
+                    if (hasCharm(this, 'longNail')) nailMultiplier *= 1.15;
+                    if (hasCharm(this, 'markOfPride')) nailMultiplier *= 1.25;
+
                     if (this.attackDirection === 1) {
                         // Down attack (pogo) - hitbox below player, only when moving down
                         if (this.vy <= 0) {
                             // Not moving down, no hitbox
                             return false;
                         }
-                        hitboxWidth = 90;
-                        hitboxHeight = 50;
+                        hitboxWidth = 90 * nailMultiplier;
+                        hitboxHeight = 50 * nailMultiplier;
                         hitboxX = this.x + this.width / 2 - hitboxWidth / 2;
                         hitboxY = this.y + this.height;
                     } else if (this.attackDirection === -1) {
                         // Up attack - hitbox above player
-                        hitboxWidth = 80;
-                        hitboxHeight = 30;
+                        hitboxWidth = 80 * nailMultiplier;
+                        hitboxHeight = 30 * nailMultiplier;
                         hitboxX = this.x + this.width / 2 - hitboxWidth / 2;
                         hitboxY = this.y - hitboxHeight;
                     } else {
                         // Horizontal attack - hitbox to the side
                         // When wall sliding, attack goes away from wall
                         const attackFacing = this.onWall ? -this.facing : this.facing;
-                        const hitboxRange = 40;
+                        const hitboxRange = 40 * nailMultiplier;
                         hitboxX = this.x + (attackFacing > 0 ? this.width : -hitboxRange);
                         hitboxY = this.y;
                         hitboxWidth = hitboxRange;
@@ -726,7 +756,7 @@
                         // Pogo bounce if down attacking another player (only once per attack)
                         if (this.attackDirection === 1 && !this.pogoBounced) {
                             this.vy = -POGO_BOUNCE;
-                            this.jumpsLeft = 1;
+                            this.jumpsLeft = getMaxJumps(this) - 1;
                             this.dashAvailable = true;
                             this.pogoBounced = true;
                         } else if (this.attackDirection !== 1) {
@@ -929,42 +959,47 @@
                     // Crescent grows slightly as it animates
                     const growFactor = 1 + slashProgress * 0.15;
 
+                    // Nail range multiplier for visual slash (matches hitbox scaling)
+                    let nailScale = 1.0;
+                    if (hasCharm(this, 'longNail')) nailScale *= 1.15;
+                    if (hasCharm(this, 'markOfPride')) nailScale *= 1.25;
+
                     let slashX, slashY, rotation;
                     let outerRadiusX, outerRadiusY, innerRadiusX, innerRadiusY, innerOffsetY;
                     let baseStartAngle, baseEndAngle;
 
                     if (this.attackDirection === 1) {
                         // Pogo/down attack - 2/3 of oval showing
-                        outerRadiusX = 18 * growFactor;
-                        outerRadiusY = 30 * growFactor;
-                        innerRadiusX = 6 * growFactor;
-                        innerRadiusY = 16 * growFactor;
+                        outerRadiusX = 18 * growFactor * nailScale;
+                        outerRadiusY = 30 * growFactor * nailScale;
+                        innerRadiusX = 6 * growFactor * nailScale;
+                        innerRadiusY = 16 * growFactor * nailScale;
                         innerOffsetY = 0;
                         slashX = 0;
-                        slashY = 35;
+                        slashY = 35 * nailScale;
                         rotation = 0;
                         baseStartAngle = -Math.PI * 0.33;
                         baseEndAngle = Math.PI * 1.33;
                     } else if (this.attackDirection === -1) {
                         // Up attack
-                        outerRadiusX = 40 * growFactor;
-                        outerRadiusY = 16 * growFactor;
-                        innerRadiusX = 26 * growFactor;
-                        innerRadiusY = 6 * growFactor;
-                        innerOffsetY = -5 * growFactor;
+                        outerRadiusX = 40 * growFactor * nailScale;
+                        outerRadiusY = 16 * growFactor * nailScale;
+                        innerRadiusX = 26 * growFactor * nailScale;
+                        innerRadiusY = 6 * growFactor * nailScale;
+                        innerOffsetY = -5 * growFactor * nailScale;
                         slashX = 0;
-                        slashY = -28;
+                        slashY = -28 * nailScale;
                         rotation = -Math.PI / 2;
                         baseStartAngle = -Math.PI * 0.85;
                         baseEndAngle = Math.PI * 0.85;
                     } else {
                         // Side attack
-                        outerRadiusX = 40 * growFactor;
-                        outerRadiusY = 16 * growFactor;
-                        innerRadiusX = 26 * growFactor;
-                        innerRadiusY = 6 * growFactor;
-                        innerOffsetY = -5 * growFactor;
-                        slashX = 20;
+                        outerRadiusX = 40 * growFactor * nailScale;
+                        outerRadiusY = 16 * growFactor * nailScale;
+                        innerRadiusX = 26 * growFactor * nailScale;
+                        innerRadiusY = 6 * growFactor * nailScale;
+                        innerOffsetY = -5 * growFactor * nailScale;
+                        slashX = 20 * nailScale;
                         slashY = 8;
                         rotation = 0;
                         baseStartAngle = -Math.PI * 0.55;
@@ -1254,6 +1289,11 @@
                     const slashProgress = 1 - (this.attackTimer / 15);
                     const growFactor = 1 + slashProgress * 0.15;
 
+                    // Nail range multiplier for visual slash
+                    let nailScale = 1.0;
+                    if (hasCharm(this, 'longNail')) nailScale *= 1.15;
+                    if (hasCharm(this, 'markOfPride')) nailScale *= 1.25;
+
                     let outerRadiusX, outerRadiusY, innerRadiusX, innerRadiusY, innerOffsetY;
                     let baseStartAngle, baseEndAngle;
 
@@ -1261,33 +1301,33 @@
 
                     if (this.attackDirection === 1) {
                         // Pogo/down attack - 2/3 of oval showing
-                        outerRadiusX = 18 * growFactor;
-                        outerRadiusY = 30 * growFactor;
-                        innerRadiusX = 6 * growFactor;
-                        innerRadiusY = 16 * growFactor;
+                        outerRadiusX = 18 * growFactor * nailScale;
+                        outerRadiusY = 30 * growFactor * nailScale;
+                        innerRadiusX = 6 * growFactor * nailScale;
+                        innerRadiusY = 16 * growFactor * nailScale;
                         innerOffsetY = 0;
-                        ctx.translate(baseX, baseY + 31);
+                        ctx.translate(baseX, baseY + 31 * nailScale);
                         this.drawNail(baseX, baseY, Math.PI / 2, isFlashing);
                         baseStartAngle = -Math.PI * 0.33;
                         baseEndAngle = Math.PI * 1.33;
                     } else if (this.attackDirection === -1) {
-                        outerRadiusX = 40 * growFactor;
-                        outerRadiusY = 16 * growFactor;
-                        innerRadiusX = 26 * growFactor;
-                        innerRadiusY = 6 * growFactor;
-                        innerOffsetY = -5 * growFactor;
-                        ctx.translate(baseX, baseY - 32);
+                        outerRadiusX = 40 * growFactor * nailScale;
+                        outerRadiusY = 16 * growFactor * nailScale;
+                        innerRadiusX = 26 * growFactor * nailScale;
+                        innerRadiusY = 6 * growFactor * nailScale;
+                        innerOffsetY = -5 * growFactor * nailScale;
+                        ctx.translate(baseX, baseY - 32 * nailScale);
                         ctx.rotate(-Math.PI / 2);
                         this.drawNail(baseX, baseY - 20, -Math.PI / 2, isFlashing);
                         baseStartAngle = -Math.PI * 0.85;
                         baseEndAngle = Math.PI * 0.85;
                     } else {
-                        outerRadiusX = 40 * growFactor;
-                        outerRadiusY = 16 * growFactor;
-                        innerRadiusX = 26 * growFactor;
-                        innerRadiusY = 6 * growFactor;
-                        innerOffsetY = -5 * growFactor;
-                        ctx.translate(baseX + 20 * this.facing, baseY + 3);
+                        outerRadiusX = 40 * growFactor * nailScale;
+                        outerRadiusY = 16 * growFactor * nailScale;
+                        innerRadiusX = 26 * growFactor * nailScale;
+                        innerRadiusY = 6 * growFactor * nailScale;
+                        innerOffsetY = -5 * growFactor * nailScale;
+                        ctx.translate(baseX + 20 * nailScale * this.facing, baseY + 3);
                         if (this.facing < 0) ctx.scale(-1, 1);
                         const swingAngle = (slashProgress * Math.PI * 0.8 - Math.PI * 0.4) * this.facing;
                         this.drawNail(nailBaseX, nailBaseY, swingAngle, isFlashing);
@@ -1452,7 +1492,7 @@
                         this.y = platform.y - this.height;
                         this.vy = 0;
                         this.onGround = true;
-                        this.jumpsLeft = 2;
+                        this.jumpsLeft = getMaxJumps(this);
                         this.dashAvailable = true;
 
                     } else if (minOverlap === overlapBottom && this.vy < 0) {
@@ -1466,7 +1506,7 @@
                             this.vx = 0;
                             this.onWall = true;
                             this.wallDirection = -1;
-                            this.jumpsLeft = 2;
+                            this.jumpsLeft = getMaxJumps(this);
                             this.dashAvailable = true;
                             this.wingFadeSpeed = 5; // Quick fade wings when wall sliding
                         }
@@ -1477,7 +1517,7 @@
                             this.vx = 0;
                             this.onWall = true;
                             this.wallDirection = 1;
-                            this.jumpsLeft = 2;
+                            this.jumpsLeft = getMaxJumps(this);
                             this.dashAvailable = true;
                             this.wingFadeSpeed = 5; // Quick fade wings when wall sliding
                         }
@@ -1486,8 +1526,12 @@
             }
 
             handleSpikeCollision(spike) {
-                // Extended pogo hitbox to match slash width (25 pixels to each side)
-                const pogoSlashWidth = 45;
+                // Extended pogo hitbox to match slash width
+                // Calculate nail range multiplier from charms (stacks)
+                let nailMultiplier = 1.0;
+                if (hasCharm(this, 'longNail')) nailMultiplier *= 1.15;
+                if (hasCharm(this, 'markOfPride')) nailMultiplier *= 1.25;
+                const pogoSlashWidth = 45 * nailMultiplier;
                 const playerCenterX = this.x + this.width / 2;
                 const slashHitsSpike = (playerCenterX + pogoSlashWidth > spike.x) &&
                                        (playerCenterX - pogoSlashWidth < spike.x + spike.width) &&
@@ -1500,7 +1544,7 @@
                     // Pogo bounce off spikes with downward attack! (only bounce once per attack)
                     if (!this.pogoBounced) {
                         this.vy = -POGO_BOUNCE;
-                        this.jumpsLeft = 1;
+                        this.jumpsLeft = getMaxJumps(this) - 1;
                         this.dashAvailable = true;
                         this.pogoBounced = true;
                     }
@@ -2616,11 +2660,146 @@
             document.getElementById('winMessage').style.display = 'block';
         }
 
+        // Charm helper functions
+        function getUsedNotches(charms) {
+            return charms.reduce((sum, charmId) => sum + CHARMS[charmId].notches, 0);
+        }
+
+        function hasCharm(player, charmId) {
+            const charms = player.label === 'P1' ? p1Charms : p2Charms;
+            return charms.includes(charmId);
+        }
+
+        function getMaxJumps(player) {
+            return hasCharm(player, 'tripleJump') ? 3 : 2;
+        }
+
+        function toggleCharm(playerNum, charmId) {
+            const charms = playerNum === 1 ? p1Charms : p2Charms;
+            const index = charms.indexOf(charmId);
+            if (index >= 0) {
+                // Remove charm
+                charms.splice(index, 1);
+            } else {
+                // Add charm if enough notches
+                const used = getUsedNotches(charms);
+                if (used + CHARMS[charmId].notches <= MAX_NOTCHES) {
+                    charms.push(charmId);
+                }
+            }
+        }
+
+        // Draw charm selection screen
+        function drawCharmSelect() {
+            // Dark overlay
+            ctx.fillStyle = 'rgba(20, 20, 30, 0.95)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Title
+            ctx.fillStyle = '#ffffff';
+            ctx.font = 'bold 32px Courier New';
+            ctx.textAlign = 'center';
+            ctx.fillText('SELECT CHARMS', canvas.width / 2, 50);
+
+            ctx.font = '16px Courier New';
+            ctx.fillStyle = '#aaaaaa';
+            ctx.fillText('Click to toggle charms. Press SPACE when both players are ready.', canvas.width / 2, 80);
+
+            const charmList = Object.keys(CHARMS);
+            const boxWidth = 160;
+            const boxHeight = 70;
+            const startY = 120;
+
+            // Draw for both players
+            for (let p = 0; p < 2; p++) {
+                const playerCharms = p === 0 ? p1Charms : p2Charms;
+                const usedNotches = getUsedNotches(playerCharms);
+                const offsetX = p === 0 ? 100 : canvas.width / 2 + 50;
+
+                // Player header
+                ctx.fillStyle = p === 0 ? '#e0e0e0' : '#88ccff';
+                ctx.font = 'bold 20px Courier New';
+                ctx.textAlign = 'left';
+                ctx.fillText(`Player ${p + 1}`, offsetX, startY);
+
+                // Notch display
+                ctx.font = '14px Courier New';
+                ctx.fillStyle = '#ffcc00';
+                ctx.fillText(`Notches: ${usedNotches}/${MAX_NOTCHES}`, offsetX, startY + 20);
+
+                // Draw notch icons
+                for (let n = 0; n < MAX_NOTCHES; n++) {
+                    ctx.beginPath();
+                    ctx.arc(offsetX + 120 + n * 20, startY + 15, 7, 0, Math.PI * 2);
+                    ctx.fillStyle = n < usedNotches ? '#ffcc00' : '#333333';
+                    ctx.fill();
+                    ctx.strokeStyle = '#888888';
+                    ctx.lineWidth = 1;
+                    ctx.stroke();
+                }
+
+                // Draw charm boxes
+                for (let i = 0; i < charmList.length; i++) {
+                    const charmId = charmList[i];
+                    const charm = CHARMS[charmId];
+                    const row = Math.floor(i / 2);
+                    const col = i % 2;
+                    const x = offsetX + col * (boxWidth + 10);
+                    const y = startY + 50 + row * (boxHeight + 10);
+
+                    const isEquipped = playerCharms.includes(charmId);
+                    const canEquip = usedNotches + charm.notches <= MAX_NOTCHES;
+
+                    // Box background
+                    ctx.fillStyle = isEquipped ? 'rgba(255, 200, 0, 0.3)' : 'rgba(50, 50, 60, 0.8)';
+                    ctx.fillRect(x, y, boxWidth, boxHeight);
+
+                    // Border
+                    ctx.strokeStyle = isEquipped ? '#ffcc00' : (canEquip ? '#666666' : '#333333');
+                    ctx.lineWidth = isEquipped ? 3 : 1;
+                    ctx.strokeRect(x, y, boxWidth, boxHeight);
+
+                    // Charm name
+                    ctx.fillStyle = isEquipped ? '#ffcc00' : (canEquip ? '#ffffff' : '#555555');
+                    ctx.font = 'bold 12px Courier New';
+                    ctx.textAlign = 'left';
+                    ctx.fillText(charm.name, x + 5, y + 18);
+
+                    // Notch cost
+                    ctx.fillStyle = '#aaaaaa';
+                    ctx.font = '10px Courier New';
+                    ctx.fillText(`Cost: ${charm.notches}`, x + 5, y + 32);
+
+                    // Description
+                    ctx.fillStyle = '#888888';
+                    ctx.font = '10px Courier New';
+                    const desc = charm.description;
+                    if (desc.length > 22) {
+                        ctx.fillText(desc.substring(0, 22), x + 5, y + 48);
+                        ctx.fillText(desc.substring(22), x + 5, y + 60);
+                    } else {
+                        ctx.fillText(desc, x + 5, y + 48);
+                    }
+
+                    // Store hitbox for click detection
+                    if (!window.charmBoxes) window.charmBoxes = [];
+                    window.charmBoxes[p * charmList.length + i] = { x, y, w: boxWidth, h: boxHeight, player: p + 1, charmId };
+                }
+            }
+
+            ctx.textAlign = 'left';
+        }
+
         // Restart game
         function restartGame() {
             gameWon = false;
             winner = null;
             document.getElementById('winMessage').style.display = 'none';
+
+            // Reset charms and show charm selection
+            p1Charms = [];
+            p2Charms = [];
+            charmSelectActive = true;
 
             // Generate new random level
             generateLevel();
@@ -2808,6 +2987,13 @@
 
         // Game loop
         function gameLoop() {
+            // Show charm selection screen if active
+            if (charmSelectActive) {
+                drawCharmSelect();
+                requestAnimationFrame(gameLoop);
+                return;
+            }
+
             // Update
             player1.update();
             player2.update();
@@ -2820,9 +3006,10 @@
 
             // Check if players fell off a platform (were grounded, now airborne without jumping)
             [player1, player2].forEach(player => {
-                if ((player.wasOnGround || player.wasOnWall) && !player.onGround && !player.onWall) {
+                // Only trigger if actually falling (vy >= 0), not if jumping upward (vy < 0)
+                if ((player.wasOnGround || player.wasOnWall) && !player.onGround && !player.onWall && player.vy >= 0) {
                     // Player fell off - only allow double jump, not first jump
-                    player.jumpsLeft = Math.min(player.jumpsLeft, 1);
+                    player.jumpsLeft = Math.min(player.jumpsLeft, getMaxJumps(player) - 1);
                 }
             });
 
@@ -2871,7 +3058,7 @@
                             // Pogo bounce! (only bounce once per attack)
                             if (!player.pogoBounced) {
                                 player.vy = -POGO_BOUNCE;
-                                player.jumpsLeft = 1;
+                                player.jumpsLeft = getMaxJumps(player) - 1;
                                 player.dashAvailable = true;
                                 player.pogoBounced = true;
                             }
@@ -3022,6 +3209,12 @@
             ctx.fillText('P1', splitX / 2, 30);
             ctx.fillText('P2', splitX + splitX / 2, 30);
 
+            // Debug: Show equipped charms
+            ctx.font = '10px monospace';
+            ctx.fillStyle = '#666';
+            ctx.fillText('Charms: ' + (p1Charms.length > 0 ? p1Charms.join(', ') : 'none'), splitX / 2, 45);
+            ctx.fillText('Charms: ' + (p2Charms.length > 0 ? p2Charms.join(', ') : 'none'), splitX + splitX / 2, 45);
+
             // Draw L/R hand toggle boxes
             const boxW = 40, boxH = 20;
 
@@ -3053,11 +3246,25 @@
             requestAnimationFrame(gameLoop);
         }
 
-        // Click handler for L/R toggle
+        // Click handler for L/R toggle and charm selection
         canvas.addEventListener('click', (e) => {
             const rect = canvas.getBoundingClientRect();
-            const x = e.clientX - rect.left;
-            const y = e.clientY - rect.top;
+            // Scale coordinates to account for any CSS scaling of the canvas
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            const x = (e.clientX - rect.left) * scaleX;
+            const y = (e.clientY - rect.top) * scaleY;
+
+            // Charm selection click handling
+            if (charmSelectActive && window.charmBoxes) {
+                for (const box of window.charmBoxes) {
+                    if (box && x >= box.x && x <= box.x + box.w && y >= box.y && y <= box.y + box.h) {
+                        toggleCharm(box.player, box.charmId);
+                        return;
+                    }
+                }
+                return; // Don't process other clicks during charm select
+            }
 
             const boxW = 40, boxH = 20;
             const splitX = canvas.width / 2;
@@ -3080,6 +3287,14 @@
                 } else {
                     setP2Controls('right');
                 }
+            }
+        });
+
+        // Space to start game from charm select
+        window.addEventListener('keydown', (e) => {
+            if (charmSelectActive && e.code === 'Space') {
+                charmSelectActive = false;
+                window.charmBoxes = null;
             }
         });
 
