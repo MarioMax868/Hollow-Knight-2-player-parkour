@@ -134,6 +134,7 @@
             longNail: { name: 'Long Nail', notches: 1, description: 'Slightly increases nail range' },
             quickSlash: { name: 'Quick Slash', notches: 2, description: 'Decreases attack cooldown' },
             markOfPride: { name: 'Mark of Pride', notches: 2, description: 'Greatly increases nail range' },
+            heavyBlow: { name: 'Heavy Blow', notches: 3, description: 'Increases knockback by 25%' },
             tripleJump: { name: 'Triple Jump', notches: 4, description: 'Jump 3 times instead of 2' },
             dashmaster: { name: 'Dashmaster', notches: 4, description: 'Dash 2 times instead of 1' },
             lifebloodHeart: { name: 'Lifeblood Heart', notches: 4, description: '2 extra masks - respawn at last platform instead of checkpoint' }
@@ -770,21 +771,24 @@
                         // For up/down attacks, push based on relative position
                         const relativeDir = (otherPlayer.x + otherPlayer.width / 2) > (this.x + this.width / 2) ? 1 : -1;
 
+                        // Heavy Blow increases knockback by 75%
+                        const knockbackMultiplier = hasCharm(this, 'heavyBlow') ? 1.25 : 1.0;
+
                         // Apply knockback - less for up/down attacks
                         if (this.attackDirection === 0) {
                             // Horizontal attack - full knockback
-                            otherPlayer.vx = knockbackDir * 12;
-                            otherPlayer.vy = -2;
+                            otherPlayer.vx = knockbackDir * 12 * knockbackMultiplier;
+                            otherPlayer.vy = -2 * knockbackMultiplier;
                             otherPlayer.knockbackFrames = 10;
                         } else if (this.attackDirection === -1) {
                             // Up attack - push away from attacker
-                            otherPlayer.vx = relativeDir * 10;
-                            otherPlayer.vy = -1.5;
+                            otherPlayer.vx = relativeDir * 10 * knockbackMultiplier;
+                            otherPlayer.vy = -1.5 * knockbackMultiplier;
                             otherPlayer.knockbackFrames = 9;
                         } else {
                             // Down attack - push away from attacker
-                            otherPlayer.vx = relativeDir * 8;
-                            otherPlayer.vy = -1.5;
+                            otherPlayer.vx = relativeDir * 8 * knockbackMultiplier;
+                            otherPlayer.vy = -1.5 * knockbackMultiplier;
                             otherPlayer.knockbackFrames = 8;
                         }
                         otherPlayer.invincibilityFrames = 30;
@@ -810,13 +814,13 @@
 
                         // Pogo bounce if down attacking another player (only once per attack)
                         if (this.attackDirection === 1 && !this.pogoBounced) {
-                            this.vy = -POGO_BOUNCE;
+                            this.vy = -POGO_BOUNCE * knockbackMultiplier;
                             this.jumpsLeft = getMaxJumps(this) - 1;
                             this.dashesLeft = getMaxDashes(this);
                             this.pogoBounced = true;
                         } else if (this.attackDirection !== 1) {
                             // Small recoil for attacker (non-pogo attacks)
-                            this.vx = -knockbackDir * 3;
+                            this.vx = -knockbackDir * 3 * knockbackMultiplier;
                         }
 
                         // Create impact particles
@@ -1612,7 +1616,8 @@
                     this.y + this.height - this.vy <= spike.y + 10 && slashHitsSpike) {
                     // Pogo bounce off spikes with downward attack! (only bounce once per attack)
                     if (!this.pogoBounced) {
-                        this.vy = -POGO_BOUNCE;
+                        const pogoMultiplier = hasCharm(this, 'heavyBlow') ? 1.25 : 1.0;
+                        this.vy = -POGO_BOUNCE * pogoMultiplier;
                         this.jumpsLeft = getMaxJumps(this) - 1;
                         this.dashesLeft = getMaxDashes(this);
                         this.pogoBounced = true;
@@ -3199,7 +3204,8 @@
                             hitboxY + hitboxHeight > shadeY) {
                             // Pogo bounce! (only bounce once per attack)
                             if (!player.pogoBounced) {
-                                player.vy = -POGO_BOUNCE;
+                                const pogoMultiplier = hasCharm(player, 'heavyBlow') ? 1.25 : 1.0;
+                                player.vy = -POGO_BOUNCE * pogoMultiplier;
                                 player.jumpsLeft = getMaxJumps(player) - 1;
                                 player.dashesLeft = getMaxDashes(player);
                                 player.pogoBounced = true;
