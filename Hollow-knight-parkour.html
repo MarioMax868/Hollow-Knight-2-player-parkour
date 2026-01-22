@@ -416,8 +416,8 @@
 
                     // Apply gravity
                     if (this.onWall && hasCharm(this, 'wallCling')) {
-                        // Wall Cling - completely stop on wall
-                        if (this.vy > 0) this.vy = 0;
+                        // Wall Cling - completely stop on wall (both up and down)
+                        this.vy = 0;
                         // Don't apply gravity while clinging
                     } else if (this.onWall && this.vy > 0) {
                         // Normal wall slide
@@ -3179,31 +3179,50 @@
             const p1Hit = player1.handleAttackCollision(player2);
             const p2Hit = player2.handleAttackCollision(player1);
 
-            // Shade pogo collision - check if players can pogo off death animations
+            // Shade attack collision - check if players can hit shades with any attack
             deathAnimations.forEach(shade => {
                 [player1, player2].forEach(player => {
-                    if (player.attackTimer > 0 && player.attackDirection === 1) {
-                        // Down attack - check for pogo collision with shade
+                    if (player.attackTimer > 0) {
                         const shadeSize = 40;
                         const shadeX = shade.x - shadeSize / 2;
                         const shadeY = shade.y - shadeSize / 2;
 
-                        // Player's down attack hitbox (below player) - scaled by nail charms
+                        // Calculate nail range multiplier from charms
                         let nailMultiplier = 1.0;
                         if (hasCharm(player, 'longNail')) nailMultiplier *= 1.15;
                         if (hasCharm(player, 'markOfPride')) nailMultiplier *= 1.25;
-                        const hitboxWidth = 36 * nailMultiplier;
-                        const hitboxHeight = 45 * nailMultiplier;
-                        const hitboxX = player.x + player.width / 2 - hitboxWidth / 2;
-                        const hitboxY = player.y + player.height;
+
+                        let hitboxX, hitboxY, hitboxWidth, hitboxHeight;
+
+                        if (player.attackDirection === 1) {
+                            // Down attack hitbox (below player)
+                            hitboxWidth = 36 * nailMultiplier;
+                            hitboxHeight = 45 * nailMultiplier;
+                            hitboxX = player.x + player.width / 2 - hitboxWidth / 2;
+                            hitboxY = player.y + player.height;
+                        } else if (player.attackDirection === -1) {
+                            // Up attack hitbox (above player)
+                            hitboxWidth = 90 * nailMultiplier;
+                            hitboxHeight = 35 * nailMultiplier;
+                            hitboxX = player.x + player.width / 2 - hitboxWidth / 2;
+                            hitboxY = player.y - hitboxHeight;
+                        } else {
+                            // Horizontal attack hitbox (to the side)
+                            const attackFacing = player.onWall ? -player.facing : player.facing;
+                            hitboxWidth = 60 * nailMultiplier;
+                            hitboxHeight = 35 * nailMultiplier;
+                            hitboxX = player.x + (attackFacing > 0 ? player.width : -hitboxWidth);
+                            hitboxY = player.y + player.height / 2 - hitboxHeight / 2;
+                        }
 
                         // Check collision
                         if (hitboxX < shadeX + shadeSize &&
                             hitboxX + hitboxWidth > shadeX &&
                             hitboxY < shadeY + shadeSize &&
                             hitboxY + hitboxHeight > shadeY) {
-                            // Pogo bounce! (only bounce once per attack)
-                            if (!player.pogoBounced) {
+
+                            // Pogo bounce for down attacks only (only bounce once per attack)
+                            if (player.attackDirection === 1 && !player.pogoBounced) {
                                 const pogoMultiplier = hasCharm(player, 'heavyBlow') ? 1.25 : 1.0;
                                 player.vy = -POGO_BOUNCE * pogoMultiplier;
                                 player.jumpsLeft = getMaxJumps(player) - 1;
